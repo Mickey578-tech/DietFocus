@@ -1,0 +1,44 @@
+app:
+  name: "DietFocus"
+  version: "1.0.0"
+
+user:
+  name: "User"
+  age: 54
+  gender: "female"
+
+targets:
+  daily_protein_g: 120
+  daily_carbs_g: 30
+  daily_fat_g: 60
+  daily_calories: 1400
+
+fasting:
+  enabled: true
+  eating_window_start: "12:00"
+  eating_window_end: "20:00"
+  allowed_before_window:
+    - "black coffee"
+    - "water"
+    - "plain tea"
+
+meals:
+  meals_per_day: 2
+  meal_labels:
+    - "Meal 1 (Lunch)"
+    - "Meal 2 (Dinner)"
+
+notifications:
+  weigh_in_day: "Monday"
+  weigh_in_reminder_time: "08:00"
+  meal_missing_alert_time: "21:00"
+  carb_limit_alert: true
+  provider: "twilio"  # options: twilio, make
+
+alerts:
+  carb_warning_threshold_g: 25
+  carb_danger_threshold_g: 30
+
+visualization:
+  weight_chart_days: 90
+  default_chart_days: 30
