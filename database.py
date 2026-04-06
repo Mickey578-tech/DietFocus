@@ -70,6 +70,17 @@ class DatabaseManager:
             print(f"Error fetching weight history: {e}")
             return []
 
+    def delete_weight(self, weight_id: str) -> bool:
+        """Delete a weight entry by id."""
+        if not self.connected:
+            return False
+        try:
+            self.client.table("weight_logs").delete().eq("id", weight_id).execute()
+            return True
+        except Exception as e:
+            print(f"Error deleting weight: {e}")
+            return False
+
     def get_latest_weight(self) -> Optional[Dict]:
         """Return the most recent weight entry."""
         if not self.connected:

@@ -370,14 +370,23 @@ elif page == "⚖️ Log Weight":
             else:
                 st.error("❌ Could not save. Check your Supabase connection.")
 
-    # Recent history table
+    # Recent history table with delete buttons
     st.divider()
     st.subheader("Recent Weigh-Ins")
     history = db.get_weight_history(days=60)
     if history:
-        df = pd.DataFrame(history)[["date", "weight_kg", "notes"]].sort_values("date", ascending=False)
-        df.columns = ["Date", "Weight (kg)", "Notes"]
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        records = sorted(history, key=lambda x: x["date"], reverse=True)
+        for row in records:
+            col1, col2, col3, col4 = st.columns([2, 1, 3, 0.5])
+            col1.write(row["date"])
+            col2.write(f"**{row['weight_kg']} kg**")
+            col3.write(row.get("notes", ""))
+            if col4.button("🗑️", key=f"del_w_{row['id']}"):
+                if db.delete_weight(row["id"]):
+                    st.success("Entry deleted.")
+                    st.rerun()
+                else:
+                    st.error("Could not delete entry.")
     else:
         st.info("No weight entries yet.")
 
