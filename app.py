@@ -8,6 +8,7 @@ import io
 import os
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.express as px
@@ -79,6 +80,12 @@ EATING_START = time.fromisoformat(FASTING["eating_window_start"])
 EATING_END   = time.fromisoformat(FASTING["eating_window_end"])
 
 # ─── Page Setup ────────────────────────────────────────────────────────────────
+
+TZ = ZoneInfo("Asia/Jerusalem")
+
+def now_il() -> datetime:
+    """Current datetime in Israel time."""
+    return datetime.now(TZ)
 
 st.set_page_config(
     page_title="DietFocus",
@@ -197,13 +204,13 @@ st.markdown(
 
 # ─── App Header ────────────────────────────────────────────────────────────────
 
-now = datetime.now().time()
+now = now_il().time()
 if EATING_START <= now <= EATING_END:
-    remaining = datetime.combine(date.today(), EATING_END) - datetime.now()
+    remaining = datetime.combine(date.today(), EATING_END) - now_il()
     h, m = divmod(remaining.seconds // 60, 60)
     fasting_badge = f"🟢 {h}h {m}m left"
 elif now < EATING_START:
-    until = datetime.combine(date.today(), EATING_START) - datetime.now()
+    until = datetime.combine(date.today(), EATING_START) - now_il()
     h, m = divmod(until.seconds // 60, 60)
     fasting_badge = f"⏳ Window in {h}h {m}m"
 else:
@@ -489,9 +496,9 @@ elif page == "🍽️ Log Meal":
     )
 
     # Fasting window check
-    now = datetime.now().time()
+    now = now_il().time()
     if now < EATING_START:
-        until = datetime.combine(date.today(), EATING_START) - datetime.now()
+        until = datetime.combine(date.today(), EATING_START) - now_il()
         h, m = divmod(until.seconds // 60, 60)
         st.markdown(
             f'<div class="fast-closed">⏳ <strong>Fasting window active.</strong> '
@@ -504,7 +511,7 @@ elif page == "🍽️ Log Meal":
             unsafe_allow_html=True,
         )
     else:
-        remaining = datetime.combine(date.today(), EATING_END) - datetime.now()
+        remaining = datetime.combine(date.today(), EATING_END) - now_il()
         h, m = divmod(remaining.seconds // 60, 60)
         st.markdown(
             f'<div class="fast-active">🟢 <strong>Eating window open</strong> – '
