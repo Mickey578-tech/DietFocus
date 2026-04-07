@@ -1017,20 +1017,17 @@ elif page == "✨ Body Vision":
         with col_result:
             st.subheader("Your future self")
             if uploaded and generate_btn:
-                with st.spinner("AI is generating your visualization... this takes ~30 seconds"):
-                    image_bytes = uploaded.read() if uploaded.tell() == 0 else None
-                    if image_bytes is None:
-                        uploaded.seek(0)
-                        image_bytes = uploaded.read()
-
-                    result_url = body_viz.visualize(image_bytes, kg_to_lose)
+                with st.spinner("AI is generating your visualization... this takes ~60 seconds"):
+                    uploaded.seek(0)
+                    image_bytes = uploaded.read()
+                    result_url, error_msg = body_viz.visualize(image_bytes, kg_to_lose)
 
                 if result_url:
                     st.image(result_url, caption=f"After losing {kg_to_lose} kg", use_column_width=True)
                     st.success(f"You've got this! Only {kg_to_lose} kg to go! 💪")
                     st.caption("This is an AI visualization. Results are an approximation.")
                 else:
-                    st.error("Could not generate visualization. Please try again.")
+                    st.error(f"Could not generate visualization: {error_msg}")
             elif not uploaded:
                 st.markdown(
                     """<div style="background:#f5f5f5; border-radius:12px; padding:3rem;

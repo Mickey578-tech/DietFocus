@@ -5,12 +5,14 @@ Shows how the user would look after losing a specified amount of weight.
 """
 
 import base64
+import io
 import os
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
+from PIL import Image as PILImage
 
 load_dotenv()
 
@@ -54,14 +56,25 @@ class BodyVisualizer:
             pass
         return ""
 
-    def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Optional[str]:
+    def _resize_image(self, image_bytes: bytes, max_size: int = 768) -> bytes:
+        """Resize image to max_size on longest side and return as JPEG bytes."""
+        img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h = img.size
+        if max(w, h) > max_size:
+            ratio = max_size / max(w, h)
+            img = img.resize((int(w * ratio), int(h * ratio)), PILImage.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=85)
+        return out.getvalue()
+
+    def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Tuple[Optional[str], Optional[str]]:
         """
         Call Replicate API directly via HTTP (no SDK needed).
-        Returns URL of generated image, or None on failure.
+        Returns (image_url, error_message) — one of them will be None.
         """
         token = self._get_token()
         if not token:
-            return None
+            return None, "No API token found."
 
         desc, strength = _kg_to_prompt(kg_to_lose)
         prompt = (
@@ -74,13 +87,15 @@ class BodyVisualizer:
             "different clothes, cartoon, illustration, painting, blurry"
         )
 
-        # Encode image as base64 data URI
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        # Resize and encode image
+        resized = self._resize_image(image_bytes)
+        b64 = base64.b64encode(resized).decode("utf-8")
         image_uri = f"data:image/jpeg;base64,{b64}"
 
         headers = {
-            "Authorization": f"Token {token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "Prefer": "wait",
         }
 
         # Start prediction
@@ -91,46 +106,50 @@ class BodyVisualizer:
                 json={
                     "version": MODEL_VERSION,
                     "input": {
-                        "image": image_uri,
-                        "prompt": prompt,
-                        "negative_prompt": negative_prompt,
-                        "strength": strength,
-                        "guidance_scale": 8.0,
+                        "image":               image_uri,
+                        "prompt":              prompt,
+                        "negative_prompt":     negative_prompt,
+                        "strength":            strength,
+                        "guidance_scale":      8.0,
                         "num_inference_steps": 35,
-                        "scheduler": "K_EULER_ANCESTRAL",
+                        "scheduler":           "K_EULER_ANCESTRAL",
                     },
                 },
-                timeout=30,
+                timeout=60,
             )
-            response.raise_for_status()
             prediction = response.json()
+            if not response.ok:
+                return None, f"API error {response.status_code}: {prediction.get('detail', response.text)}"
         except Exception as e:
-            print(f"Replicate start error: {e}")
-            return None
+            return None, f"Request failed: {e}"
+
+        # If synchronous response already has output (Prefer: wait)
+        if prediction.get("status") == "succeeded":
+            output = prediction.get("output")
+            if isinstance(output, list) and output:
+                return output[0], None
+            if output:
+                return str(output), None
 
         # Poll for result (max 3 minutes)
         prediction_url = prediction.get("urls", {}).get("get")
         if not prediction_url:
-            return None
+            return None, f"No polling URL returned. Response: {prediction}"
 
-        for _ in range(36):  # 36 × 5s = 3 min
+        for _ in range(36):
             time.sleep(5)
             try:
                 poll = requests.get(prediction_url, headers=headers, timeout=15)
-                poll.raise_for_status()
                 result = poll.json()
                 status = result.get("status")
                 if status == "succeeded":
                     output = result.get("output")
                     if isinstance(output, list) and output:
-                        return output[0]
-                    return str(output) if output else None
+                        return output[0], None
+                    return str(output), None if output else (None, "Empty output")
                 elif status in ("failed", "canceled"):
-                    print(f"Replicate prediction {status}: {result.get('error')}")
-                    return None
+                    return None, f"Prediction {status}: {result.get('error', 'unknown error')}"
             except Exception as e:
-                print(f"Replicate poll error: {e}")
-                return None
+                return None, f"Poll error: {e}"
 
-        print("Replicate timeout after 3 minutes")
-        return None
+        return None, "Timeout: generation took too long (over 3 minutes)"
