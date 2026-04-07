@@ -38,15 +38,19 @@ class BodyVisualizer:
         self.enabled = self._check_token()
 
     def _get_token(self) -> str:
+        # Try environment variable first
         token = os.getenv("REPLICATE_API_TOKEN", "")
-        # Also check Streamlit secrets as fallback
-        if not token or "your-" in token:
-            try:
-                import streamlit as st
-                token = st.secrets.get("REPLICATE_API_TOKEN", "")
-            except Exception:
-                pass
-        return token
+        if token and "your-" not in token and len(token) > 10:
+            return token
+        # Try Streamlit secrets
+        try:
+            import streamlit as st
+            token = st.secrets["REPLICATE_API_TOKEN"]
+            if token and len(token) > 10:
+                return token
+        except Exception:
+            pass
+        return ""
 
     def _check_token(self) -> bool:
         token = self._get_token()
