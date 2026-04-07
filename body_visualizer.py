@@ -55,7 +55,7 @@ class BodyVisualizer:
         try:
             import replicate  # noqa
             return True
-        except ImportError:
+        except Exception:
             return False
 
     def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Optional[str]:
