@@ -1,20 +1,24 @@
 """
 DietFocus – body_visualizer.py
-AI-powered body visualization using Replicate image-to-image models.
+AI-powered body visualization using Replicate API (via HTTP, no SDK needed).
 Shows how the user would look after losing a specified amount of weight.
 """
 
-import io
+import base64
 import os
+import time
 from typing import Optional
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
+REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
+MODEL_VERSION = "15a3689ee13b0d2616e98820eca31d4af4a36bde6782fc7d238b10a05d01e3de"
+
 
 def _kg_to_prompt(kg: float) -> tuple[str, float]:
-    """Convert kg loss to a descriptive prompt and image strength."""
     if kg <= 2:
         desc = "slightly slimmer figure, subtle weight loss"
         strength = 0.30
@@ -35,14 +39,12 @@ def _kg_to_prompt(kg: float) -> tuple[str, float]:
 
 class BodyVisualizer:
     def __init__(self):
-        self.enabled = self._check_token()
+        self.enabled = bool(self._get_token())
 
     def _get_token(self) -> str:
-        # Try environment variable first
         token = os.getenv("REPLICATE_API_TOKEN", "")
         if token and "your-" not in token and len(token) > 10:
             return token
-        # Try Streamlit secrets
         try:
             import streamlit as st
             token = st.secrets["REPLICATE_API_TOKEN"]
@@ -52,26 +54,16 @@ class BodyVisualizer:
             pass
         return ""
 
-    def _check_token(self) -> bool:
-        token = self._get_token()
-        if not token or "your-" in token or len(token) < 10:
-            return False
-        try:
-            import replicate  # noqa
-            return True
-        except Exception:
-            return False
-
     def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Optional[str]:
         """
-        Generate a weight-loss visualization.
-        Returns the URL of the generated image, or None on failure.
+        Call Replicate API directly via HTTP (no SDK needed).
+        Returns URL of generated image, or None on failure.
         """
-        if not self.enabled:
+        token = self._get_token()
+        if not token:
             return None
 
         desc, strength = _kg_to_prompt(kg_to_lose)
-
         prompt = (
             f"photorealistic portrait of the same person, {desc}, "
             "same face, same hairstyle, same clothing, same background, "
@@ -82,32 +74,63 @@ class BodyVisualizer:
             "different clothes, cartoon, illustration, painting, blurry"
         )
 
+        # Encode image as base64 data URI
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        image_uri = f"data:image/jpeg;base64,{b64}"
+
+        headers = {
+            "Authorization": f"Token {token}",
+            "Content-Type": "application/json",
+        }
+
+        # Start prediction
         try:
-            import replicate
-            token = self._get_token()
-            client = replicate.Client(api_token=token)
-            output = client.run(
-                "stability-ai/stable-diffusion-img2img:"
-                "15a3689ee13b0d2616e98820eca31d4af4a36bde6782fc7d238b10a05d01e3de",
-                input={
-                    "image":             io.BytesIO(image_bytes),
-                    "prompt":            prompt,
-                    "negative_prompt":   negative_prompt,
-                    "strength":          strength,
-                    "guidance_scale":    8.0,
-                    "num_inference_steps": 35,
-                    "scheduler":         "K_EULER_ANCESTRAL",
+            response = requests.post(
+                REPLICATE_API_URL,
+                headers=headers,
+                json={
+                    "version": MODEL_VERSION,
+                    "input": {
+                        "image": image_uri,
+                        "prompt": prompt,
+                        "negative_prompt": negative_prompt,
+                        "strength": strength,
+                        "guidance_scale": 8.0,
+                        "num_inference_steps": 35,
+                        "scheduler": "K_EULER_ANCESTRAL",
+                    },
                 },
+                timeout=30,
             )
-            if output:
-                return output[0] if isinstance(output, list) else str(output)
-            return None
+            response.raise_for_status()
+            prediction = response.json()
         except Exception as e:
-            print(f"Replicate error: {e}")
+            print(f"Replicate start error: {e}")
             return None
 
-    def unavailable_reason(self) -> str:
-        token = os.getenv("REPLICATE_API_TOKEN", "")
-        if not token or "your-" in token:
-            return "REPLICATE_API_TOKEN not configured in Streamlit secrets."
-        return "replicate package not installed — run: pip install replicate"
+        # Poll for result (max 3 minutes)
+        prediction_url = prediction.get("urls", {}).get("get")
+        if not prediction_url:
+            return None
+
+        for _ in range(36):  # 36 × 5s = 3 min
+            time.sleep(5)
+            try:
+                poll = requests.get(prediction_url, headers=headers, timeout=15)
+                poll.raise_for_status()
+                result = poll.json()
+                status = result.get("status")
+                if status == "succeeded":
+                    output = result.get("output")
+                    if isinstance(output, list) and output:
+                        return output[0]
+                    return str(output) if output else None
+                elif status in ("failed", "canceled"):
+                    print(f"Replicate prediction {status}: {result.get('error')}")
+                    return None
+            except Exception as e:
+                print(f"Replicate poll error: {e}")
+                return None
+
+        print("Replicate timeout after 3 minutes")
+        return None

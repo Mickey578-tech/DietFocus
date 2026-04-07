@@ -10,5 +10,3 @@ PyYAML>=6.0.1
 requests>=2.31.0
 httpx>=0.26.0
 streamlit-option-menu>=0.3.6
-replicate==0.25.2
-pydantic>=2.0.0

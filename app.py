@@ -960,12 +960,10 @@ elif page == "✨ Body Vision":
         unsafe_allow_html=True,
     )
 
-    # Re-check token on every page load (not cached)
-    body_viz.enabled = body_viz._check_token()
+    # Re-check token on every page load
+    body_viz.enabled = bool(body_viz._get_token())
 
     if not body_viz.enabled:
-        token_debug = body_viz._get_token()
-        st.caption(f"Debug — token found: {'yes (' + token_debug[:8] + '...)' if token_debug else 'no'}")
         st.markdown(
             """<div class="alert-warning">
             <strong>Replicate API not configured.</strong><br>
