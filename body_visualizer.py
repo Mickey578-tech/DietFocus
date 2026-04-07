@@ -17,7 +17,8 @@ from PIL import Image as PILImage
 load_dotenv()
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-MODEL_VERSION = "15a3689ee13b0d2616e98820eca31d4af4a36bde6782fc7d238b10a05d01e3de"
+MODEL_OWNER = "timothybrooks"
+MODEL_NAME  = "instruct-pix2pix"
 
 
 def _kg_to_prompt(kg: float) -> tuple[str, float]:
@@ -67,6 +68,19 @@ class BodyVisualizer:
         img.save(out, format="JPEG", quality=85)
         return out.getvalue()
 
+    def _get_latest_version(self, token: str) -> Tuple[Optional[str], Optional[str]]:
+        """Fetch the latest version hash for the model."""
+        try:
+            url = f"https://api.replicate.com/v1/models/{MODEL_OWNER}/{MODEL_NAME}/versions"
+            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+            r.raise_for_status()
+            versions = r.json().get("results", [])
+            if versions:
+                return versions[0]["id"], None
+            return None, "No versions found for model"
+        except Exception as e:
+            return None, f"Could not fetch model version: {e}"
+
     def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Tuple[Optional[str], Optional[str]]:
         """
         Call Replicate API directly via HTTP (no SDK needed).
@@ -77,15 +91,16 @@ class BodyVisualizer:
             return None, "No API token found."
 
         desc, strength = _kg_to_prompt(kg_to_lose)
-        prompt = (
-            f"photorealistic portrait of the same person, {desc}, "
-            "same face, same hairstyle, same clothing, same background, "
-            "high quality photo, natural lighting, realistic"
+        instruction = (
+            f"Make this person look {kg_to_lose} kilograms thinner. "
+            f"Slim down the waist, face, and body. Keep the same face, "
+            f"hair, clothing, and background. Realistic photo."
         )
-        negative_prompt = (
-            "different person, ugly, deformed, bad anatomy, distorted face, "
-            "different clothes, cartoon, illustration, painting, blurry"
-        )
+
+        # Fetch latest model version dynamically
+        version_id, err = self._get_latest_version(token)
+        if not version_id:
+            return None, err
 
         # Resize and encode image
         resized = self._resize_image(image_bytes)
@@ -95,7 +110,6 @@ class BodyVisualizer:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "Prefer": "wait",
         }
 
         # Start prediction
@@ -104,15 +118,13 @@ class BodyVisualizer:
                 REPLICATE_API_URL,
                 headers=headers,
                 json={
-                    "version": MODEL_VERSION,
+                    "version": version_id,
                     "input": {
                         "image":               image_uri,
-                        "prompt":              prompt,
-                        "negative_prompt":     negative_prompt,
-                        "strength":            strength,
-                        "guidance_scale":      8.0,
-                        "num_inference_steps": 35,
-                        "scheduler":           "K_EULER_ANCESTRAL",
+                        "prompt":              instruction,
+                        "num_inference_steps": 50,
+                        "image_guidance_scale": 1.5,
+                        "guidance_scale":      7.5,
                     },
                 },
                 timeout=60,
