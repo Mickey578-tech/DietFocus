@@ -35,20 +35,28 @@ def _kg_to_prompt(kg: float) -> tuple[str, float]:
 
 class BodyVisualizer:
     def __init__(self):
-        token = os.getenv("REPLICATE_API_TOKEN", "")
-        self.enabled = bool(token and "your-" not in token and len(token) > 10)
-        self.client = None
+        self.enabled = self._check_token()
 
-        if self.enabled:
+    def _get_token(self) -> str:
+        token = os.getenv("REPLICATE_API_TOKEN", "")
+        # Also check Streamlit secrets as fallback
+        if not token or "your-" in token:
             try:
-                import replicate
-                self.client = replicate.Client(api_token=token)
-                print("✅ Body visualizer ready.")
-            except ImportError:
-                print("⚠️  replicate package not installed.")
-                self.enabled = False
-        else:
-            print("⚠️  REPLICATE_API_TOKEN not set – body visualization disabled.")
+                import streamlit as st
+                token = st.secrets.get("REPLICATE_API_TOKEN", "")
+            except Exception:
+                pass
+        return token
+
+    def _check_token(self) -> bool:
+        token = self._get_token()
+        if not token or "your-" in token or len(token) < 10:
+            return False
+        try:
+            import replicate  # noqa
+            return True
+        except ImportError:
+            return False
 
     def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Optional[str]:
         """
@@ -72,7 +80,9 @@ class BodyVisualizer:
 
         try:
             import replicate
-            output = replicate.run(
+            token = self._get_token()
+            client = replicate.Client(api_token=token)
+            output = client.run(
                 "stability-ai/stable-diffusion-img2img:"
                 "15a3689ee13b0d2616e98820eca31d4af4a36bde6782fc7d238b10a05d01e3de",
                 input={

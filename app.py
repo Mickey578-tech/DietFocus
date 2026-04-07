@@ -49,11 +49,7 @@ db  = get_db()
 analyzer  = get_analyzer()
 notifier  = get_notifier()
 
-@st.cache_resource
-def get_body_visualizer() -> BodyVisualizer:
-    return BodyVisualizer()
-
-body_viz = get_body_visualizer()
+body_viz = BodyVisualizer()
 
 # Load targets: Supabase overrides config.yaml defaults
 def load_targets() -> Dict:
