@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import yaml
 from dotenv import load_dotenv
+from streamlit_option_menu import option_menu
 
 from database import DatabaseManager
 from notifications import NotificationManager
@@ -57,7 +58,7 @@ st.set_page_config(
     page_title="DietFocus",
     page_icon="🥗",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ─── Custom CSS ────────────────────────────────────────────────────────────────
@@ -69,41 +70,71 @@ st.markdown(
 
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-    .main { background-color: #f8faf8; }
+    /* Hide default sidebar toggle on mobile */
+    [data-testid="collapsedControl"] { display: none; }
+    section[data-testid="stSidebar"] { display: none; }
 
-    .page-title {
-        font-size: 2rem; font-weight: 700;
-        color: #1a3c1a; margin-bottom: 0.2rem;
+    .main { background-color: #f4f7f4; padding-top: 0.5rem; }
+    .block-container { padding-top: 1rem !important; }
+
+    /* App header */
+    .app-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.6rem 1rem;
+        background: linear-gradient(135deg, #1B5E20, #2E7D32);
+        border-radius: 14px; margin-bottom: 1rem;
+        box-shadow: 0 4px 15px rgba(27,94,32,0.25);
     }
-    .page-subtitle { font-size: 0.95rem; color: #666; margin-bottom: 1.5rem; }
+    .app-header-title {
+        font-size: 1.4rem; font-weight: 700; color: white; letter-spacing: 0.02em;
+    }
+    .app-header-sub { font-size: 0.75rem; color: #A5D6A7; }
+    .fasting-badge {
+        background: rgba(255,255,255,0.15); border-radius: 20px;
+        padding: 0.4rem 0.9rem; color: white; font-size: 0.8rem; font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.3);
+    }
 
-    .kpi-card {
-        background: white;
-        border-radius: 14px;
-        padding: 1.2rem 1.4rem;
+    /* Navigation */
+    .nav-container {
+        background: white; border-radius: 14px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.07);
-        text-align: center;
-        border-top: 4px solid #4CAF50;
+        margin-bottom: 1.2rem; overflow: hidden;
     }
-    .kpi-value  { font-size: 2rem; font-weight: 700; color: #1B5E20; }
-    .kpi-delta  { font-size: 0.85rem; margin-top: 2px; }
-    .kpi-label  { font-size: 0.78rem; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 
+    /* KPI cards */
+    .kpi-card {
+        background: white; border-radius: 14px;
+        padding: 1rem 1.2rem;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        text-align: center; border-top: 4px solid #4CAF50;
+        height: 100%;
+    }
+    .kpi-value  { font-size: 1.8rem; font-weight: 700; color: #1B5E20; }
+    .kpi-delta  { font-size: 0.8rem; margin-top: 2px; min-height: 1.1rem; }
+    .kpi-label  { font-size: 0.72rem; color: #999; margin-top: 4px;
+                  text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Fasting banners */
     .fast-active {
         background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
         border: 1px solid #A5D6A7; border-radius: 12px;
-        padding: 1rem 1.4rem; margin-bottom: 1rem;
+        padding: 0.9rem 1.2rem; margin-bottom: 1rem;
     }
     .fast-closed {
         background: #FFF3E0; border: 1px solid #FFCC80;
-        border-radius: 12px; padding: 1rem 1.4rem; margin-bottom: 1rem;
+        border-radius: 12px; padding: 0.9rem 1.2rem; margin-bottom: 1rem;
     }
+
+    /* Meal cards */
     .meal-card {
         background: white; border-radius: 12px;
         border-left: 5px solid #66BB6A;
-        padding: 1rem 1.2rem; margin-bottom: 0.8rem;
+        padding: 0.9rem 1.1rem; margin-bottom: 0.7rem;
         box-shadow: 0 1px 6px rgba(0,0,0,0.06);
     }
+
+    /* Alerts */
     .alert-warning {
         background: #FFF8E1; border-left: 4px solid #FFC107;
         padding: 0.8rem 1rem; border-radius: 6px; margin: 0.5rem 0;
@@ -116,48 +147,78 @@ st.markdown(
         background: #E8F5E9; border-left: 4px solid #4CAF50;
         padding: 0.8rem 1rem; border-radius: 6px; margin: 0.5rem 0;
     }
+
     div[data-testid="stProgress"] > div > div > div {
         background-color: #4CAF50 !important;
     }
-    .stButton > button {
-        border-radius: 8px; font-weight: 600;
+    .stButton > button { border-radius: 8px; font-weight: 600; }
+
+    .page-title {
+        font-size: 1.7rem; font-weight: 700;
+        color: #1a3c1a; margin-bottom: 0.1rem;
+    }
+    .page-subtitle { font-size: 0.9rem; color: #666; margin-bottom: 1.2rem; }
+
+    /* Mobile responsive */
+    @media (max-width: 640px) {
+        .kpi-value { font-size: 1.4rem; }
+        .app-header-title { font-size: 1.1rem; }
     }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ─── Sidebar ───────────────────────────────────────────────────────────────────
+# ─── App Header ────────────────────────────────────────────────────────────────
 
-with st.sidebar:
-    st.markdown("## 🥗 DietFocus")
-    st.caption("Low-carb · High-protein · IF 16:8")
-    st.divider()
+now = datetime.now().time()
+if EATING_START <= now <= EATING_END:
+    remaining = datetime.combine(date.today(), EATING_END) - datetime.now()
+    h, m = divmod(remaining.seconds // 60, 60)
+    fasting_badge = f"🟢 {h}h {m}m left"
+elif now < EATING_START:
+    until = datetime.combine(date.today(), EATING_START) - datetime.now()
+    h, m = divmod(until.seconds // 60, 60)
+    fasting_badge = f"⏳ Window in {h}h {m}m"
+else:
+    fasting_badge = "🔒 Window closed"
 
-    page = st.radio(
-        "Navigation",
-        ["🏠 Dashboard", "⚖️ Log Weight", "🍽️ Log Meal", "📊 History", "🔔 Notifications", "⚙️ Settings"],
-        label_visibility="collapsed",
-    )
+st.markdown(
+    f"""<div class="app-header">
+        <div>
+            <div class="app-header-title">🥗 DietFocus</div>
+            <div class="app-header-sub">Low-carb · High-protein · IF 16:8</div>
+        </div>
+        <div class="fasting-badge">{fasting_badge}</div>
+    </div>""",
+    unsafe_allow_html=True,
+)
 
-    st.divider()
+# ─── Navigation ────────────────────────────────────────────────────────────────
 
-    # Live fasting status in sidebar
-    now = datetime.now().time()
-    if EATING_START <= now <= EATING_END:
-        remaining = datetime.combine(date.today(), EATING_END) - datetime.now()
-        h, m = divmod(remaining.seconds // 60, 60)
-        st.success(f"🟢 Eating window\n{h}h {m}m remaining")
-    elif now < EATING_START:
-        until = datetime.combine(date.today(), EATING_START) - datetime.now()
-        h, m = divmod(until.seconds // 60, 60)
-        st.info(f"⏳ Fasting\n{h}h {m}m until window")
-    else:
-        st.warning("🔒 Eating window closed")
+st.markdown('<div class="nav-container">', unsafe_allow_html=True)
+selected = option_menu(
+    menu_title=None,
+    options=["Dashboard", "Log Weight", "Log Meal", "History", "Notifications", "Settings"],
+    icons=["house-heart-fill", "clipboard2-pulse-fill", "egg-fried", "bar-chart-fill", "bell-fill", "gear-fill"],
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "0", "background-color": "white", "border-radius": "14px"},
+        "icon": {"color": "#4CAF50", "font-size": "18px"},
+        "nav-link": {
+            "font-size": "0.75rem", "font-weight": "600", "color": "#666",
+            "padding": "0.7rem 0.3rem", "text-align": "center",
+            "--hover-color": "#E8F5E9",
+        },
+        "nav-link-selected": {
+            "background-color": "#E8F5E9", "color": "#1B5E20", "border-radius": "10px",
+        },
+    },
+)
+st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-    status = "🟢 Connected" if db.connected else "🔴 Demo mode"
-    st.caption(f"DB: {status}")
+page = f"{'🏠' if selected == 'Dashboard' else '⚖️' if selected == 'Log Weight' else '🍽️' if selected == 'Log Meal' else '📊' if selected == 'History' else '🔔' if selected == 'Notifications' else '⚙️'} {selected}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAGE: Dashboard
