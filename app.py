@@ -554,7 +554,7 @@ elif page == "🍽️ Log Meal":
             manual_fat      = mc3.number_input("Fat (g)",     0.0, 500.0, 0.0, 0.5)
             manual_calories = mc4.number_input("Calories",    0,   5000,  0,   10)
 
-            submitted = st.form_submit_button("🔍 Analyze & Save", use_container_width=True)
+            submitted = st.form_submit_button("💾 Analyze & Save Meal", use_container_width=True)
 
     with col_result:
         if submitted:
@@ -562,13 +562,11 @@ elif page == "🍽️ Log Meal":
                 st.error("Please provide a meal description or photo.")
             else:
                 analysis = {}
-                with st.spinner("Analyzing meal…"):
+                with st.spinner("Analyzing and saving meal…"):
                     if uploaded_file:
                         image_bytes = uploaded_file.read()
                         media_type  = f"image/{uploaded_file.type.split('/')[-1]}"
                         analysis    = analyzer.analyze_image(image_bytes, media_type)
-                        from PIL import Image as PILImage
-                        st.image(PILImage.open(io.BytesIO(image_bytes)), caption="Uploaded meal", use_column_width=True)
                     elif description:
                         analysis = analyzer.analyze_text(description)
 
@@ -577,22 +575,6 @@ elif page == "🍽️ Log Meal":
                 final_carbs    = manual_carbs    if manual_carbs    > 0 else analysis.get("carbs_g",    0)
                 final_fat      = manual_fat      if manual_fat      > 0 else analysis.get("fat_g",      0)
                 final_calories = manual_calories if manual_calories > 0 else analysis.get("calories",   0)
-
-                if analysis and not analysis.get("error") == "unavailable":
-                    st.success(f"✅ Analysis complete (confidence: {analysis.get('confidence', 'n/a')})")
-                    if analysis.get("food_items"):
-                        st.markdown("**Identified items:** " + ", ".join(analysis["food_items"]))
-                    if analysis.get("notes"):
-                        st.caption(f"Note: {analysis['notes']}")
-
-                st.markdown("#### Nutrition Summary")
-                n1, n2, n3, n4 = st.columns(4)
-                n1.metric("Protein", f"{final_protein:.0f}g")
-                n2.metric("Net Carbs", f"{final_carbs:.0f}g",
-                          delta=f"limit: {TARGETS['daily_carbs_g']}g",
-                          delta_color="inverse")
-                n3.metric("Fat", f"{final_fat:.0f}g")
-                n4.metric("Calories", f"{final_calories}")
 
                 meal_data = {
                     "date": str(log_date),
@@ -605,22 +587,20 @@ elif page == "🍽️ Log Meal":
                     "analysis_raw": str(analysis),
                 }
 
-                if st.button("💾 Confirm & Save", key="save_meal"):
-                    if db.log_meal(meal_data):
-                        st.success("Meal saved! ✅")
-                        # Check carb alert
-                        today_meals  = db.get_meals_for_date(log_date)
-                        total_carbs  = sum(m.get("carbs_g", 0) for m in today_meals) + final_carbs
-                        if total_carbs > TARGETS["daily_carbs_g"]:
-                            st.markdown(
-                                f'<div class="alert-warning">⚠️ Daily carbs now '
-                                f'{total_carbs:.0f}g – over your {TARGETS["daily_carbs_g"]}g limit.</div>',
-                                unsafe_allow_html=True,
-                            )
-                    elif not db.connected:
-                        st.warning("Demo mode – meal not persisted.")
-                    else:
-                        st.error("Could not save meal.")
+                if db.log_meal(meal_data):
+                    st.success(f"✅ Meal saved! Protein: {final_protein:.0f}g | Carbs: {final_carbs:.0f}g | Fat: {final_fat:.0f}g | {final_calories} kcal")
+                    today_meals = db.get_meals_for_date(log_date)
+                    total_carbs = sum(m.get("carbs_g", 0) for m in today_meals)
+                    if total_carbs > TARGETS["daily_carbs_g"]:
+                        st.markdown(
+                            f'<div class="alert-warning">⚠️ Daily carbs now '
+                            f'{total_carbs:.0f}g – over your {TARGETS["daily_carbs_g"]}g limit.</div>',
+                            unsafe_allow_html=True,
+                        )
+                elif not db.connected:
+                    st.warning("Demo mode – meal not persisted.")
+                else:
+                    st.error("Could not save meal.")
 
     # Today's meals list
     st.divider()
