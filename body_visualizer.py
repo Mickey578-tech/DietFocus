@@ -17,8 +17,8 @@ from PIL import Image as PILImage
 load_dotenv()
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-MODEL_OWNER = "timothybrooks"
-MODEL_NAME  = "instruct-pix2pix"
+MODEL_OWNER = "lucataco"
+MODEL_NAME  = "sdxl-img2img"
 
 
 def _kg_to_prompt(kg: float) -> tuple[str, float]:
@@ -91,10 +91,14 @@ class BodyVisualizer:
             return None, "No API token found."
 
         desc, strength = _kg_to_prompt(kg_to_lose)
-        instruction = (
-            f"Make this person look {kg_to_lose} kilograms thinner. "
-            f"Slim down the waist, face, and body. Keep the same face, "
-            f"hair, clothing, and background. Realistic photo."
+        prompt = (
+            f"The exact same woman, same face, same hair, same outfit, same room background, "
+            f"but with a {desc}. Photorealistic, high quality, natural lighting. "
+            f"Preserve all facial features exactly."
+        )
+        negative_prompt = (
+            "different person, different face, multiple people, ugly, deformed, "
+            "cartoon, illustration, blurry, low quality, different clothes, different background"
         )
 
         # Fetch latest model version dynamically
@@ -121,10 +125,11 @@ class BodyVisualizer:
                     "version": version_id,
                     "input": {
                         "image":               image_uri,
-                        "prompt":              instruction,
+                        "prompt":              prompt,
+                        "negative_prompt":     negative_prompt,
+                        "strength":            strength,
                         "num_inference_steps": 50,
-                        "image_guidance_scale": 1.5,
-                        "guidance_scale":      7.5,
+                        "guidance_scale":      8.0,
                     },
                 },
                 timeout=60,
