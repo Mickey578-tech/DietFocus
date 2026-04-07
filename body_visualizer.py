@@ -18,7 +18,7 @@ load_dotenv()
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
 MODEL_OWNER = "lucataco"
-MODEL_NAME  = "sdxl-img2img"
+MODEL_NAME  = "sdxl"
 
 
 def _kg_to_prompt(kg: float) -> tuple[str, float]:
@@ -127,7 +127,7 @@ class BodyVisualizer:
                         "image":               image_uri,
                         "prompt":              prompt,
                         "negative_prompt":     negative_prompt,
-                        "strength":            strength,
+                        "prompt_strength":     strength,
                         "num_inference_steps": 50,
                         "guidance_scale":      8.0,
                     },
