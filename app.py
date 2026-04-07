@@ -206,11 +206,11 @@ st.markdown(
 
 now = now_il().time()
 if EATING_START <= now <= EATING_END:
-    remaining = datetime.combine(date.today(), EATING_END) - now_il()
+    remaining = datetime.combine(date.today(), EATING_END, TZ) - now_il()
     h, m = divmod(remaining.seconds // 60, 60)
     fasting_badge = f"🟢 {h}h {m}m left"
 elif now < EATING_START:
-    until = datetime.combine(date.today(), EATING_START) - now_il()
+    until = datetime.combine(date.today(), EATING_START, TZ) - now_il()
     h, m = divmod(until.seconds // 60, 60)
     fasting_badge = f"⏳ Window in {h}h {m}m"
 else:
@@ -498,7 +498,7 @@ elif page == "🍽️ Log Meal":
     # Fasting window check
     now = now_il().time()
     if now < EATING_START:
-        until = datetime.combine(date.today(), EATING_START) - now_il()
+        until = datetime.combine(date.today(), EATING_START, TZ) - now_il()
         h, m = divmod(until.seconds // 60, 60)
         st.markdown(
             f'<div class="fast-closed">⏳ <strong>Fasting window active.</strong> '
@@ -511,7 +511,7 @@ elif page == "🍽️ Log Meal":
             unsafe_allow_html=True,
         )
     else:
-        remaining = datetime.combine(date.today(), EATING_END) - now_il()
+        remaining = datetime.combine(date.today(), EATING_END, TZ) - now_il()
         h, m = divmod(remaining.seconds // 60, 60)
         st.markdown(
             f'<div class="fast-active">🟢 <strong>Eating window open</strong> – '
