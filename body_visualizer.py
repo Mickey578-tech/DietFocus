@@ -30,24 +30,25 @@ def _kg_to_params(kg: float) -> tuple[str, float, float]:
       Higher = more faithful to original (range 1.0 – 3.0).
     guidance_scale: how strongly to follow the text instruction.
     """
+    clothes_note = "Keep all clothing, outfit, shoes, and accessories exactly the same. Do not remove or change any clothing."
     if kg <= 2:
-        instruction = "Make this person's body very slightly slimmer, just a subtle reduction in waist size"
+        instruction = f"Very slightly slim this person's waist and hips through their clothes. {clothes_note}"
         guidance_scale = 7.0
         image_guidance_scale = 2.2
     elif kg <= 5:
-        instruction = "Make this person noticeably slimmer with a slimmer waist and slightly thinner face, keep everything else identical"
+        instruction = f"Slim this person's waist and hips noticeably through their clothes, making their silhouette a bit thinner. {clothes_note}"
         guidance_scale = 7.5
         image_guidance_scale = 2.0
     elif kg <= 10:
-        instruction = "Make this person significantly slimmer with a much thinner waist and slimmer body, keep the face, hair, clothes and background identical"
+        instruction = f"Slim this person's waist, hips and thighs significantly through their clothes, making their body silhouette clearly thinner. {clothes_note}"
         guidance_scale = 8.0
         image_guidance_scale = 1.8
     elif kg <= 15:
-        instruction = "Make this person very slim with a thin waist, slim arms and legs, keep the face, hair, clothes and background identical"
+        instruction = f"Make this person's body silhouette very slim through their clothes — thin waist, slim hips, slimmer arms and legs. {clothes_note}"
         guidance_scale = 8.5
         image_guidance_scale = 1.7
     else:
-        instruction = "Make this person dramatically slimmer and more athletic with a very thin waist and toned body, keep the face, hair, clothes and background identical"
+        instruction = f"Make this person's body silhouette dramatically slim and athletic through their clothes — very thin waist, slim hips and legs. {clothes_note}"
         guidance_scale = 9.0
         image_guidance_scale = 1.6
     return instruction, guidance_scale, image_guidance_scale
@@ -92,6 +93,7 @@ class BodyVisualizer:
 
         instruction, guidance_scale, image_guidance_scale = _kg_to_params(kg_to_lose)
         negative_prompt = (
+            "naked, nude, underwear, bra, bikini, undressed, topless, revealing, "
             "different person, different face, different hair, multiple people, "
             "different clothes, different background, ugly, deformed, blurry, low quality"
         )
