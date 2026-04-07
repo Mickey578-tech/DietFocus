@@ -2,6 +2,7 @@
 DietFocus – body_visualizer.py
 AI-powered body visualization using Replicate API (via HTTP, no SDK needed).
 Shows how the user would look after losing a specified amount of weight.
+Uses instruct-pix2pix which edits an existing image rather than generating a new one.
 """
 
 import base64
@@ -17,27 +18,39 @@ from PIL import Image as PILImage
 load_dotenv()
 
 REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
-MODEL_OWNER = "lucataco"
-MODEL_NAME  = "sdxl"
+# instruct-pix2pix: edits an existing image based on a text instruction.
+# image_guidance_scale keeps the output close to the original photo.
+MODEL_VERSION = "30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f"
 
 
-def _kg_to_prompt(kg: float) -> tuple[str, float]:
+def _kg_to_params(kg: float) -> tuple[str, float, float]:
+    """
+    Returns (instruction_prompt, guidance_scale, image_guidance_scale).
+    image_guidance_scale: how much to stay faithful to the original photo.
+      Higher = more faithful to original (range 1.0 – 3.0).
+    guidance_scale: how strongly to follow the text instruction.
+    """
     if kg <= 2:
-        desc = "slightly slimmer figure, subtle weight loss"
-        strength = 0.30
+        instruction = "Make this person's body very slightly slimmer, just a subtle reduction in waist size"
+        guidance_scale = 7.0
+        image_guidance_scale = 2.2
     elif kg <= 5:
-        desc = "noticeably slimmer figure, slimmer waist and face, visible weight loss"
-        strength = 0.42
+        instruction = "Make this person noticeably slimmer with a slimmer waist and slightly thinner face, keep everything else identical"
+        guidance_scale = 7.5
+        image_guidance_scale = 2.0
     elif kg <= 10:
-        desc = "significantly slimmer figure, much thinner waist, slimmer face and body"
-        strength = 0.55
+        instruction = "Make this person significantly slimmer with a much thinner waist and slimmer body, keep the face, hair, clothes and background identical"
+        guidance_scale = 8.0
+        image_guidance_scale = 1.8
     elif kg <= 15:
-        desc = "very slim figure, major weight loss, thin waist, slim arms and legs"
-        strength = 0.65
+        instruction = "Make this person very slim with a thin waist, slim arms and legs, keep the face, hair, clothes and background identical"
+        guidance_scale = 8.5
+        image_guidance_scale = 1.7
     else:
-        desc = "very slim athletic figure, dramatic weight loss transformation, thin and toned"
-        strength = 0.72
-    return desc, strength
+        instruction = "Make this person dramatically slimmer and more athletic with a very thin waist and toned body, keep the face, hair, clothes and background identical"
+        guidance_scale = 9.0
+        image_guidance_scale = 1.6
+    return instruction, guidance_scale, image_guidance_scale
 
 
 class BodyVisualizer:
@@ -57,54 +70,31 @@ class BodyVisualizer:
             pass
         return ""
 
-    def _resize_image(self, image_bytes: bytes, max_size: int = 768) -> bytes:
-        """Resize image to max_size on longest side and return as JPEG bytes."""
+    def _resize_image(self, image_bytes: bytes, max_size: int = 512) -> bytes:
+        """Resize image so longest side = max_size, return as JPEG bytes."""
         img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
         if max(w, h) > max_size:
             ratio = max_size / max(w, h)
             img = img.resize((int(w * ratio), int(h * ratio)), PILImage.LANCZOS)
         out = io.BytesIO()
-        img.save(out, format="JPEG", quality=85)
+        img.save(out, format="JPEG", quality=90)
         return out.getvalue()
-
-    def _get_latest_version(self, token: str) -> Tuple[Optional[str], Optional[str]]:
-        """Fetch the latest version hash for the model."""
-        try:
-            url = f"https://api.replicate.com/v1/models/{MODEL_OWNER}/{MODEL_NAME}/versions"
-            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
-            r.raise_for_status()
-            versions = r.json().get("results", [])
-            if versions:
-                return versions[0]["id"], None
-            return None, "No versions found for model"
-        except Exception as e:
-            return None, f"Could not fetch model version: {e}"
 
     def visualize(self, image_bytes: bytes, kg_to_lose: float) -> Tuple[Optional[str], Optional[str]]:
         """
-        Call Replicate API directly via HTTP (no SDK needed).
+        Call Replicate instruct-pix2pix via HTTP (no SDK needed).
         Returns (image_url, error_message) — one of them will be None.
         """
         token = self._get_token()
         if not token:
             return None, "No API token found."
 
-        desc, strength = _kg_to_prompt(kg_to_lose)
-        prompt = (
-            f"The exact same woman, same face, same hair, same outfit, same room background, "
-            f"but with a {desc}. Photorealistic, high quality, natural lighting. "
-            f"Preserve all facial features exactly."
-        )
+        instruction, guidance_scale, image_guidance_scale = _kg_to_params(kg_to_lose)
         negative_prompt = (
-            "different person, different face, multiple people, ugly, deformed, "
-            "cartoon, illustration, blurry, low quality, different clothes, different background"
+            "different person, different face, different hair, multiple people, "
+            "different clothes, different background, ugly, deformed, blurry, low quality"
         )
-
-        # Fetch latest model version dynamically
-        version_id, err = self._get_latest_version(token)
-        if not version_id:
-            return None, err
 
         # Resize and encode image
         resized = self._resize_image(image_bytes)
@@ -122,14 +112,15 @@ class BodyVisualizer:
                 REPLICATE_API_URL,
                 headers=headers,
                 json={
-                    "version": version_id,
+                    "version": MODEL_VERSION,
                     "input": {
                         "image":               image_uri,
-                        "prompt":              prompt,
+                        "prompt":              instruction,
                         "negative_prompt":     negative_prompt,
-                        "prompt_strength":     strength,
+                        "guidance_scale":      guidance_scale,
+                        "image_guidance_scale": image_guidance_scale,
                         "num_inference_steps": 50,
-                        "guidance_scale":      8.0,
+                        "num_outputs":         1,
                     },
                 },
                 timeout=60,
@@ -140,7 +131,7 @@ class BodyVisualizer:
         except Exception as e:
             return None, f"Request failed: {e}"
 
-        # If synchronous response already has output (Prefer: wait)
+        # If synchronous response already has output
         if prediction.get("status") == "succeeded":
             output = prediction.get("output")
             if isinstance(output, list) and output:
