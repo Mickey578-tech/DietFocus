@@ -261,6 +261,37 @@ class DatabaseManager:
             print(f"Error fetching fasting streak: {e}")
             return 0
 
+    # ─── User Settings ─────────────────────────────────────────────────────────
+
+    def get_settings(self) -> Dict:
+        """Load all user settings from Supabase, returns empty dict if not connected."""
+        if not self.connected:
+            return {}
+        try:
+            result = self.client.table("user_settings").select("*").execute()
+            return {row["key"]: row["value"] for row in result.data}
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+            return {}
+
+    def save_setting(self, key: str, value: str) -> bool:
+        """Save a single setting key/value to Supabase."""
+        if not self.connected:
+            return False
+        try:
+            self.client.table("user_settings").upsert(
+                {"key": key, "value": str(value), "updated_at": "now()"},
+                on_conflict="key"
+            ).execute()
+            return True
+        except Exception as e:
+            print(f"Error saving setting {key}: {e}")
+            return False
+
+    def save_settings(self, settings: Dict) -> bool:
+        """Save multiple settings at once."""
+        return all(self.save_setting(k, v) for k, v in settings.items())
+
     # ─── Demo / Fallback Data ──────────────────────────────────────────────────
 
     def _demo_weight_data(self, days: int = 90) -> List[Dict]:

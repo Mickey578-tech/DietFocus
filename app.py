@@ -47,8 +47,28 @@ db  = get_db()
 analyzer  = get_analyzer()
 notifier  = get_notifier()
 
-TARGETS = cfg["targets"]
-FASTING = cfg["fasting"]
+# Load targets: Supabase overrides config.yaml defaults
+def load_targets() -> Dict:
+    defaults = cfg["targets"].copy()
+    saved = db.get_settings()
+    if saved:
+        for key in defaults:
+            if key in saved:
+                defaults[key] = type(defaults[key])(saved[key])
+    return defaults
+
+def load_fasting() -> Dict:
+    defaults = cfg["fasting"].copy()
+    saved = db.get_settings()
+    if saved:
+        if "eating_window_start" in saved:
+            defaults["eating_window_start"] = saved["eating_window_start"]
+        if "eating_window_end" in saved:
+            defaults["eating_window_end"] = saved["eating_window_end"]
+    return defaults
+
+TARGETS = load_targets()
+FASTING = load_fasting()
 EATING_START = time.fromisoformat(FASTING["eating_window_start"])
 EATING_END   = time.fromisoformat(FASTING["eating_window_end"])
 
@@ -764,27 +784,70 @@ elif page == "⚙️ Settings":
 
     with tab_s1:
         st.subheader("Daily Macro Targets")
-        st.info("Edit `config.yaml` to change these values. Restart the app to apply.")
+        st.caption("Changes are saved to the cloud and applied immediately.")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Protein target", f"{TARGETS['daily_protein_g']}g / day")
-            st.metric("Net Carbs limit", f"{TARGETS['daily_carbs_g']}g / day")
-        with col2:
-            st.metric("Fat target",     f"{TARGETS['daily_fat_g']}g / day")
-            st.metric("Calories",       f"{TARGETS['daily_calories']} kcal / day")
+        with st.form("settings_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                new_protein = st.number_input(
+                    "Protein target (g/day)",
+                    min_value=30, max_value=300,
+                    value=int(TARGETS["daily_protein_g"]), step=5
+                )
+                new_carbs = st.number_input(
+                    "Net Carbs limit (g/day)",
+                    min_value=5, max_value=200,
+                    value=int(TARGETS["daily_carbs_g"]), step=5
+                )
+            with c2:
+                new_fat = st.number_input(
+                    "Fat target (g/day)",
+                    min_value=20, max_value=300,
+                    value=int(TARGETS["daily_fat_g"]), step=5
+                )
+                new_calories = st.number_input(
+                    "Calories target (kcal/day)",
+                    min_value=800, max_value=4000,
+                    value=int(TARGETS["daily_calories"]), step=50
+                )
 
-        st.subheader("Fasting Window")
-        st.metric("Eating window",
-                  f"{FASTING['eating_window_start']} – {FASTING['eating_window_end']}",
-                  "16:8 Intermittent Fasting")
-        st.caption(f"Allowed before window: {', '.join(FASTING['allowed_before_window'])}")
+            st.divider()
+            st.subheader("Fasting Window")
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                new_start = st.text_input(
+                    "Eating window starts (HH:MM)",
+                    value=FASTING["eating_window_start"]
+                )
+            with fc2:
+                new_end = st.text_input(
+                    "Eating window ends (HH:MM)",
+                    value=FASTING["eating_window_end"]
+                )
 
+            save_btn = st.form_submit_button("💾 Save Settings", use_container_width=True)
+            if save_btn:
+                ok = db.save_settings({
+                    "daily_protein_g":  str(new_protein),
+                    "daily_carbs_g":    str(new_carbs),
+                    "daily_fat_g":      str(new_fat),
+                    "daily_calories":   str(new_calories),
+                    "eating_window_start": new_start,
+                    "eating_window_end":   new_end,
+                })
+                if ok:
+                    st.success("✅ Settings saved! Refresh the page to apply.")
+                elif not db.connected:
+                    st.warning("Not connected to database — settings not saved.")
+                else:
+                    st.error("Could not save settings.")
+
+        st.divider()
         st.subheader("Connection Status")
         s1, s2, s3 = st.columns(3)
-        s1.metric("Supabase",  "🟢 Connected"   if db.connected           else "🔴 Demo mode")
-        s2.metric("Vision AI", "🟢 Ready"        if analyzer.enabled       else "🔴 Not configured")
-        s3.metric("Notifications", "🟢 Ready"    if notifier.enabled       else "🔴 Not configured")
+        s1.metric("Supabase",      "🟢 Connected"    if db.connected      else "🔴 Demo mode")
+        s2.metric("Vision AI",     "🟢 Ready"         if analyzer.enabled  else "🔴 Not configured")
+        s3.metric("Notifications", "🟢 Ready"         if notifier.enabled  else "🔴 Not configured")
 
     with tab_s2:
         st.subheader("Step-by-Step Setup Guide")
