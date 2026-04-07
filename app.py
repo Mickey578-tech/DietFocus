@@ -50,21 +50,27 @@ notifier  = get_notifier()
 # Load targets: Supabase overrides config.yaml defaults
 def load_targets() -> Dict:
     defaults = cfg["targets"].copy()
-    saved = db.get_settings()
-    if saved:
-        for key in defaults:
-            if key in saved:
-                defaults[key] = type(defaults[key])(saved[key])
+    try:
+        saved = db.get_settings()
+        if saved:
+            for key in defaults:
+                if key in saved:
+                    defaults[key] = type(defaults[key])(saved[key])
+    except Exception:
+        pass
     return defaults
 
 def load_fasting() -> Dict:
     defaults = cfg["fasting"].copy()
-    saved = db.get_settings()
-    if saved:
-        if "eating_window_start" in saved:
-            defaults["eating_window_start"] = saved["eating_window_start"]
-        if "eating_window_end" in saved:
-            defaults["eating_window_end"] = saved["eating_window_end"]
+    try:
+        saved = db.get_settings()
+        if saved:
+            if "eating_window_start" in saved:
+                defaults["eating_window_start"] = saved["eating_window_start"]
+            if "eating_window_end" in saved:
+                defaults["eating_window_end"] = saved["eating_window_end"]
+    except Exception:
+        pass
     return defaults
 
 TARGETS = load_targets()
