@@ -74,8 +74,8 @@ st.markdown(
     [data-testid="collapsedControl"] { display: none; }
     section[data-testid="stSidebar"] { display: none; }
 
-    .main { background-color: #f4f7f4; padding-top: 0.5rem; }
-    .block-container { padding-top: 1rem !important; }
+    .main { background-color: #f4f7f4; }
+    .block-container { padding-top: 3.5rem !important; max-width: 1100px; }
 
     /* App header */
     .app-header {
