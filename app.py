@@ -21,6 +21,7 @@ from streamlit_option_menu import option_menu
 from database import DatabaseManager
 from notifications import NotificationManager
 from vision_analyzer import VisionAnalyzer
+from body_visualizer import BodyVisualizer
 
 load_dotenv()
 
@@ -47,6 +48,12 @@ cfg = load_config()
 db  = get_db()
 analyzer  = get_analyzer()
 notifier  = get_notifier()
+
+@st.cache_resource
+def get_body_visualizer() -> BodyVisualizer:
+    return BodyVisualizer()
+
+body_viz = get_body_visualizer()
 
 # Load targets: Supabase overrides config.yaml defaults
 def load_targets() -> Dict:
@@ -232,8 +239,8 @@ st.markdown(
 st.markdown('<div class="nav-container">', unsafe_allow_html=True)
 selected = option_menu(
     menu_title=None,
-    options=["Dashboard", "Log Weight", "Log Meal", "History", "Notifications", "Settings"],
-    icons=["house-heart-fill", "clipboard2-pulse-fill", "egg-fried", "bar-chart-fill", "bell-fill", "gear-fill"],
+    options=["Dashboard", "Log Weight", "Log Meal", "Body Vision", "History", "Settings"],
+    icons=["house-heart-fill", "clipboard2-pulse-fill", "egg-fried", "stars", "bar-chart-fill", "gear-fill"],
     default_index=0,
     orientation="horizontal",
     styles={
@@ -251,7 +258,15 @@ selected = option_menu(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
-page = f"{'🏠' if selected == 'Dashboard' else '⚖️' if selected == 'Log Weight' else '🍽️' if selected == 'Log Meal' else '📊' if selected == 'History' else '🔔' if selected == 'Notifications' else '⚙️'} {selected}"
+page_map = {
+    "Dashboard":   "🏠 Dashboard",
+    "Log Weight":  "⚖️ Log Weight",
+    "Log Meal":    "🍽️ Log Meal",
+    "Body Vision": "✨ Body Vision",
+    "History":     "📊 History",
+    "Settings":    "⚙️ Settings",
+}
+page = page_map.get(selected, "🏠 Dashboard")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAGE: Dashboard
@@ -937,3 +952,92 @@ A personal weight loss & diet tracking app built for:
 Built with Streamlit · Supabase · Claude Vision · Twilio
 """
         )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PAGE: Body Vision
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elif page == "✨ Body Vision":
+    st.markdown('<div class="page-title">✨ Body Vision</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="page-subtitle">See how you\'ll look after reaching your goal weight — powered by AI.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not body_viz.enabled:
+        st.markdown(
+            """<div class="alert-warning">
+            <strong>Replicate API not configured.</strong><br>
+            To enable this feature, add your <code>REPLICATE_API_TOKEN</code> to Streamlit secrets.
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        st.markdown("""
+**How to set up:**
+1. Go to **replicate.com** → sign up (free)
+2. Click your profile → **API Tokens** → **Create token**
+3. Go to **share.streamlit.io** → your app → **Settings** → **Secrets**
+4. Add: `REPLICATE_API_TOKEN = "r8_your_token_here"`
+5. Save → refresh the app
+        """)
+    else:
+        col_upload, col_result = st.columns([1, 1])
+
+        with col_upload:
+            st.subheader("Upload your photo")
+            st.caption("Best results: full-body photo, good lighting, standing straight.")
+
+            uploaded = st.file_uploader(
+                "Choose a photo", type=["jpg", "jpeg", "png"],
+                label_visibility="collapsed"
+            )
+
+            if uploaded:
+                from PIL import Image as PILImage
+                img = PILImage.open(uploaded)
+                st.image(img, caption="Your photo today", use_column_width=True)
+
+            st.divider()
+            kg_to_lose = st.slider(
+                "How many kg do you want to lose?",
+                min_value=1, max_value=20, value=5, step=1,
+                format="%d kg"
+            )
+
+            latest = db.get_latest_weight()
+            if latest:
+                goal_weight = round(float(latest["weight_kg"]) - kg_to_lose, 1)
+                st.info(f"Current: **{latest['weight_kg']} kg** → Goal: **{goal_weight} kg**")
+
+            generate_btn = st.button(
+                "✨ Generate Visualization",
+                use_container_width=True,
+                disabled=not uploaded,
+            )
+
+        with col_result:
+            st.subheader("Your future self")
+            if uploaded and generate_btn:
+                with st.spinner("AI is generating your visualization... this takes ~30 seconds"):
+                    image_bytes = uploaded.read() if uploaded.tell() == 0 else None
+                    if image_bytes is None:
+                        uploaded.seek(0)
+                        image_bytes = uploaded.read()
+
+                    result_url = body_viz.visualize(image_bytes, kg_to_lose)
+
+                if result_url:
+                    st.image(result_url, caption=f"After losing {kg_to_lose} kg", use_column_width=True)
+                    st.success(f"You've got this! Only {kg_to_lose} kg to go! 💪")
+                    st.caption("This is an AI visualization. Results are an approximation.")
+                else:
+                    st.error("Could not generate visualization. Please try again.")
+            elif not uploaded:
+                st.markdown(
+                    """<div style="background:#f5f5f5; border-radius:12px; padding:3rem;
+                    text-align:center; color:#aaa; margin-top:1rem;">
+                    <div style="font-size:3rem">🪞</div>
+                    <div style="margin-top:0.5rem">Your visualization will appear here</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
