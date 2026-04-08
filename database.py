@@ -236,29 +236,39 @@ class DatabaseManager:
             return False
 
     def get_fasting_streak(self) -> int:
-        """Count consecutive days of completed fasts ending today."""
+        """Count consecutive days (ending today or yesterday) where at least one meal was logged."""
         if not self.connected:
             return 5
         try:
             result = (
-                self.client.table("fasting_logs")
-                .select("date, completed_fast")
-                .order("date", desc=True)
-                .limit(30)
+                self.client.table("meals")
+                .select("logged_at")
+                .order("logged_at", desc=True)
+                .limit(200)
                 .execute()
             )
-            streak = 0
-            check_date = date.today()
+            # Collect unique dates with meal logs
+            logged_dates = set()
             for row in result.data:
-                row_date = date.fromisoformat(row["date"])
-                if row_date == check_date and row["completed_fast"]:
-                    streak += 1
-                    check_date -= timedelta(days=1)
-                else:
-                    break
+                raw = row["logged_at"]
+                meal_date = date.fromisoformat(raw[:10])
+                logged_dates.add(meal_date)
+
+            if not logged_dates:
+                return 0
+
+            # Start from today; if today has no entry yet, allow starting from yesterday
+            check_date = date.today()
+            if check_date not in logged_dates:
+                check_date -= timedelta(days=1)
+
+            streak = 0
+            while check_date in logged_dates:
+                streak += 1
+                check_date -= timedelta(days=1)
             return streak
         except Exception as e:
-            print(f"Error fetching fasting streak: {e}")
+            print(f"Error fetching streak: {e}")
             return 0
 
     # ─── User Settings ─────────────────────────────────────────────────────────

@@ -326,7 +326,7 @@ if page == "🏠 Dashboard":
     kpi(c4, today_cals, "Calories today",
         f"Target: {TARGETS['daily_calories']} kcal")
 
-    kpi(c5, f"{streak}🔥", "Fasting Streak", "days in a row",
+    kpi(c5, f"{streak}🔥", "Diet Streak", "days in a row",
         "#E65100" if streak > 0 else "#888")
 
     st.divider()
