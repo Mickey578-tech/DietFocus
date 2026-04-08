@@ -32,7 +32,6 @@ def load_config() -> Dict:
     with open("config.yaml", "r") as f:
         return yaml.safe_load(f)
 
-@st.cache_resource
 def get_db() -> DatabaseManager:
     return DatabaseManager()
 
