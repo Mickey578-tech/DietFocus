@@ -289,9 +289,6 @@ if page == "🏠 Dashboard":
     today_cals    = sum(m.get("calories", 0)   for m in meals)
     streak        = db.get_fasting_streak()
 
-    # DEBUG - temporary
-    st.caption(f"DEBUG streak={streak!r} | today={date.today()}")
-
     c1, c2, c3, c4, c5 = st.columns(5)
 
     def kpi(col, value, label, delta_text="", color="#1B5E20"):

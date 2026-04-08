@@ -240,36 +240,28 @@ class DatabaseManager:
         if not self.connected:
             return 5
         try:
-            result = (
-                self.client.table("meal_logs")
-                .select("date")
-                .order("date", desc=True)
-                .limit(200)
-                .execute()
-            )
-            # Collect unique dates with meal logs
+            # Use get_meal_history which is known to work reliably
+            meals = self.get_meal_history(days=60)
             logged_dates = set()
-            for row in result.data:
-                meal_date = date.fromisoformat(row["date"][:10])
-                logged_dates.add(meal_date)
+            for m in meals:
+                logged_dates.add(m["date"][:10])
 
             if not logged_dates:
                 return 0
 
-            # Start from today; if today has no entry yet, allow starting from yesterday
-            check_date = date.today()
-            if check_date not in logged_dates:
-                check_date -= timedelta(days=1)
+            check = str(date.today())
+            if check not in logged_dates:
+                check = str(date.today() - timedelta(days=1))
 
             streak = 0
-            while check_date in logged_dates:
+            check_d = date.fromisoformat(check)
+            while str(check_d) in logged_dates:
                 streak += 1
-                check_date -= timedelta(days=1)
+                check_d -= timedelta(days=1)
             return streak
         except Exception as e:
-            import traceback
-            print(f"Error fetching streak: {e}\n{traceback.format_exc()}")
-            return f"ERR:{e}"
+            print(f"Error fetching streak: {e}")
+            return 0
 
     # ─── User Settings ─────────────────────────────────────────────────────────
 
