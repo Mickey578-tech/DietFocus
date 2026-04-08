@@ -287,7 +287,20 @@ if page == "🏠 Dashboard":
     today_protein = sum(m.get("protein_g", 0) for m in meals)
     today_carbs   = sum(m.get("carbs_g", 0)   for m in meals)
     today_cals    = sum(m.get("calories", 0)   for m in meals)
-    streak        = db.get_fasting_streak()
+
+    # Compute streak inline using get_meal_history (known to work)
+    try:
+        _history = db.get_meal_history(days=60)
+        _logged = {m["date"][:10] for m in _history}
+        _check = date.today()
+        if str(_check) not in _logged:
+            _check -= timedelta(days=1)
+        streak = 0
+        while str(_check) in _logged:
+            streak += 1
+            _check -= timedelta(days=1)
+    except Exception:
+        streak = 0
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
