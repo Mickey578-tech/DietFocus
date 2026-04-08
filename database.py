@@ -241,17 +241,16 @@ class DatabaseManager:
             return 5
         try:
             result = (
-                self.client.table("meals")
-                .select("logged_at")
-                .order("logged_at", desc=True)
+                self.client.table("meal_logs")
+                .select("date")
+                .order("date", desc=True)
                 .limit(200)
                 .execute()
             )
             # Collect unique dates with meal logs
             logged_dates = set()
             for row in result.data:
-                raw = row["logged_at"]
-                meal_date = date.fromisoformat(raw[:10])
+                meal_date = date.fromisoformat(row["date"][:10])
                 logged_dates.add(meal_date)
 
             if not logged_dates:
