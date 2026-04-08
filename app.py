@@ -289,6 +289,13 @@ if page == "🏠 Dashboard":
     today_cals    = sum(m.get("calories", 0)   for m in meals)
     streak        = db.get_fasting_streak()
 
+    # DEBUG - temporary
+    try:
+        _dbg = db.client.table("meal_logs").select("date").order("date", desc=True).limit(5).execute()
+        st.caption(f"DEBUG streak={streak} | meal_log dates: {[r['date'] for r in _dbg.data]} | today={date.today()}")
+    except Exception as _e:
+        st.caption(f"DEBUG error: {_e}")
+
     c1, c2, c3, c4, c5 = st.columns(5)
 
     def kpi(col, value, label, delta_text="", color="#1B5E20"):
