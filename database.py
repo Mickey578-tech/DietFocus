@@ -267,8 +267,9 @@ class DatabaseManager:
                 check_date -= timedelta(days=1)
             return streak
         except Exception as e:
-            print(f"Error fetching streak: {e}")
-            return 0
+            import traceback
+            print(f"Error fetching streak: {e}\n{traceback.format_exc()}")
+            return f"ERR:{e}"
 
     # ─── User Settings ─────────────────────────────────────────────────────────
 

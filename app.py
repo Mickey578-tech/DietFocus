@@ -290,11 +290,7 @@ if page == "🏠 Dashboard":
     streak        = db.get_fasting_streak()
 
     # DEBUG - temporary
-    try:
-        _dbg = db.client.table("meal_logs").select("date").order("date", desc=True).limit(5).execute()
-        st.caption(f"DEBUG streak={streak} | meal_log dates: {[r['date'] for r in _dbg.data]} | today={date.today()}")
-    except Exception as _e:
-        st.caption(f"DEBUG error: {_e}")
+    st.caption(f"DEBUG streak={streak!r} | today={date.today()}")
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
