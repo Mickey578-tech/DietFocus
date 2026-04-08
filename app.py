@@ -77,10 +77,11 @@ def load_fasting() -> Dict:
         pass
     return defaults
 
-TARGETS = load_targets()
-FASTING = load_fasting()
+TARGETS = load_targets()   # reloaded per-user after login
+FASTING = load_fasting()   # reloaded per-user after login
 EATING_START = time.fromisoformat(FASTING["eating_window_start"])
 EATING_END   = time.fromisoformat(FASTING["eating_window_end"])
+# Note: targets/fasting are reloaded with user_id below after auth gate
 
 # ─── Page Setup ────────────────────────────────────────────────────────────────
 
@@ -205,6 +206,102 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ─── Login Gate ────────────────────────────────────────────────────────────────
+
+if "user_id" not in st.session_state:
+    st.markdown(
+        """
+        <style>
+        .login-box {
+            max-width: 420px; margin: 60px auto; background: white;
+            border-radius: 18px; padding: 2.5rem 2rem;
+            box-shadow: 0 8px 30px rgba(27,94,32,0.13);
+        }
+        .login-title { font-size: 2rem; font-weight: 700; color: #1B5E20; text-align: center; }
+        .login-sub   { text-align: center; color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+        </style>
+        <div class="login-box">
+            <div class="login-title">🥗 DietFocus</div>
+            <div class="login-sub">Low-carb · High-protein · IF 16:8</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    col = st.columns([1, 2, 1])[1]
+    with col:
+        tab_login, tab_register = st.tabs(["Login", "Create Account"])
+
+        with tab_login:
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Login", use_container_width=True)
+            if submitted:
+                uid, display, err = db.authenticate_user(username, password)
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state["user_id"]      = uid
+                    st.session_state["display_name"] = display
+                    st.rerun()
+
+        with tab_register:
+            with st.form("register_form"):
+                new_username     = st.text_input("Username")
+                new_display      = st.text_input("Display name (shown in app)")
+                new_password     = st.text_input("Password", type="password")
+                new_password2    = st.text_input("Confirm password", type="password")
+                reg_submitted    = st.form_submit_button("Create Account", use_container_width=True)
+            if reg_submitted:
+                if new_password != new_password2:
+                    st.error("Passwords do not match")
+                else:
+                    uid, err = db.register_user(new_username, new_password, new_display)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["user_id"]      = uid
+                        st.session_state["display_name"] = new_display or new_username
+                        st.success("Account created! Welcome!")
+                        st.rerun()
+    st.stop()
+
+# ─── User is logged in ─────────────────────────────────────────────────────────
+
+user_id      = st.session_state["user_id"]
+display_name = st.session_state.get("display_name", "")
+
+# Reload targets and fasting settings for this user
+def load_targets() -> Dict:
+    defaults = cfg["targets"].copy()
+    try:
+        saved = db.get_settings(user_id=user_id)
+        if saved:
+            for key in defaults:
+                if key in saved:
+                    defaults[key] = type(defaults[key])(saved[key])
+    except Exception:
+        pass
+    return defaults
+
+def load_fasting() -> Dict:
+    defaults = cfg["fasting"].copy()
+    try:
+        saved = db.get_settings(user_id=user_id)
+        if saved:
+            if "eating_window_start" in saved:
+                defaults["eating_window_start"] = saved["eating_window_start"]
+            if "eating_window_end" in saved:
+                defaults["eating_window_end"] = saved["eating_window_end"]
+    except Exception:
+        pass
+    return defaults
+
+TARGETS      = load_targets()
+FASTING      = load_fasting()
+EATING_START = time.fromisoformat(FASTING["eating_window_start"])
+EATING_END   = time.fromisoformat(FASTING["eating_window_end"])
+
 # ─── App Header ────────────────────────────────────────────────────────────────
 
 now = now_il().time()
@@ -219,16 +316,23 @@ elif now < EATING_START:
 else:
     fasting_badge = "🔒 Window closed"
 
-st.markdown(
-    f"""<div class="app-header">
-        <div>
-            <div class="app-header-title">🥗 DietFocus</div>
-            <div class="app-header-sub">Low-carb · High-protein · IF 16:8</div>
-        </div>
-        <div class="fasting-badge">{fasting_badge}</div>
-    </div>""",
-    unsafe_allow_html=True,
-)
+hcol1, hcol2 = st.columns([5, 1])
+with hcol1:
+    st.markdown(
+        f"""<div class="app-header">
+            <div>
+                <div class="app-header-title">🥗 DietFocus</div>
+                <div class="app-header-sub">Low-carb · High-protein · IF 16:8</div>
+            </div>
+            <div class="fasting-badge">{fasting_badge}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+with hcol2:
+    st.markdown(f"<div style='padding-top:0.4rem;font-size:0.8rem;color:#555'>👤 {display_name}</div>", unsafe_allow_html=True)
+    if st.button("Logout", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 # ─── Navigation ────────────────────────────────────────────────────────────────
 
@@ -276,9 +380,9 @@ if page == "🏠 Dashboard":
     )
 
     # ── KPI Row ────────────────────────────────────────────────────────────────
-    latest  = db.get_latest_weight()
-    prev    = db.get_previous_weight()
-    meals   = db.get_meals_for_date(date.today())
+    latest  = db.get_latest_weight(user_id=user_id)
+    prev    = db.get_previous_weight(user_id=user_id)
+    meals   = db.get_meals_for_date(date.today(), user_id=user_id)
 
     curr_weight = latest["weight_kg"] if latest else None
     prev_weight = prev["weight_kg"] if prev else None
@@ -288,9 +392,9 @@ if page == "🏠 Dashboard":
     today_carbs   = sum(m.get("carbs_g", 0)   for m in meals)
     today_cals    = sum(m.get("calories", 0)   for m in meals)
 
-    # Compute streak inline using get_meal_history (known to work)
+    # Diet streak
     try:
-        _history = db.get_meal_history(days=60)
+        _history = db.get_meal_history(days=60, user_id=user_id)
         _logged = {m["date"][:10] for m in _history}
         _check = date.today()
         if str(_check) not in _logged:
@@ -394,7 +498,7 @@ if page == "🏠 Dashboard":
 
     # ── Weight Trend Chart ─────────────────────────────────────────────────────
     st.subheader("Weight Trend")
-    weight_data = db.get_weight_history(days=cfg["visualization"]["weight_chart_days"])
+    weight_data = db.get_weight_history(days=cfg["visualization"]["weight_chart_days"], user_id=user_id)
 
     if weight_data:
         df = pd.DataFrame(weight_data)
@@ -449,7 +553,7 @@ elif page == "⚖️ Log Weight":
         unsafe_allow_html=True,
     )
 
-    latest = db.get_latest_weight()
+    latest = db.get_latest_weight(user_id=user_id)
     if latest:
         st.markdown(
             f'<div class="alert-success">Last recorded: <strong>{latest["weight_kg"]} kg</strong>'
@@ -474,8 +578,8 @@ elif page == "⚖️ Log Weight":
 
         submitted = st.form_submit_button("💾 Save Weight", use_container_width=True)
         if submitted:
-            if db.log_weight(weight, log_date, notes):
-                prev = db.get_previous_weight()
+            if db.log_weight(weight, log_date, user_id=user_id, notes=notes):
+                prev = db.get_previous_weight(user_id=user_id)
                 delta = round(weight - prev["weight_kg"], 1) if prev else None
                 if delta is not None:
                     direction = "▲ gained" if delta > 0 else "▼ lost"
@@ -491,7 +595,7 @@ elif page == "⚖️ Log Weight":
     # Recent history table with delete buttons
     st.divider()
     st.subheader("Recent Weigh-Ins")
-    history = db.get_weight_history(days=60)
+    history = db.get_weight_history(days=60, user_id=user_id)
     if history:
         records = sorted(history, key=lambda x: x["date"], reverse=True)
         for row in records:
@@ -598,11 +702,12 @@ elif page == "🍽️ Log Meal":
                     "fat_g": final_fat,
                     "calories": final_calories,
                     "analysis_raw": str(analysis),
+                    "user_id": user_id,
                 }
 
                 if db.log_meal(meal_data):
                     st.success(f"✅ Meal saved! Protein: {final_protein:.0f}g | Carbs: {final_carbs:.0f}g | Fat: {final_fat:.0f}g | {final_calories} kcal")
-                    today_meals = db.get_meals_for_date(log_date)
+                    today_meals = db.get_meals_for_date(log_date, user_id=user_id)
                     total_carbs = sum(m.get("carbs_g", 0) for m in today_meals)
                     if total_carbs > TARGETS["daily_carbs_g"]:
                         st.markdown(
@@ -618,7 +723,7 @@ elif page == "🍽️ Log Meal":
     # Today's meals list
     st.divider()
     st.subheader(f"Meals logged today ({date.today().strftime('%d %b')})")
-    today_meals = db.get_meals_for_date(date.today())
+    today_meals = db.get_meals_for_date(date.today(), user_id=user_id)
     if today_meals:
         for m in today_meals:
             cols = st.columns([3, 1, 1, 1, 1, 0.5])
@@ -647,7 +752,7 @@ elif page == "📊 History":
     tab1, tab2, tab3 = st.tabs(["📈 Macros Over Time", "🥗 Meal Log", "⚖️ Weight Table"])
 
     with tab1:
-        totals = db.get_daily_totals(days=selected_days)
+        totals = db.get_daily_totals(days=selected_days, user_id=user_id)
         if totals:
             df = pd.DataFrame(totals)
             df["date"] = pd.to_datetime(df["date"])
@@ -693,7 +798,7 @@ elif page == "📊 History":
             st.info("No macro data in this range yet.")
 
     with tab2:
-        meals = db.get_meal_history(days=selected_days)
+        meals = db.get_meal_history(days=selected_days, user_id=user_id)
         if meals:
             # Group by date, newest first
             from collections import defaultdict
@@ -748,7 +853,7 @@ elif page == "📊 History":
             st.info("No meal data in this range yet.")
 
     with tab3:
-        weight_data = db.get_weight_history(days=selected_days)
+        weight_data = db.get_weight_history(days=selected_days, user_id=user_id)
         if weight_data:
             df_w = pd.DataFrame(weight_data)[["date", "weight_kg", "notes"]].sort_values("date", ascending=False)
             df_w.columns = ["Date", "Weight (kg)", "Notes"]
@@ -799,7 +904,7 @@ elif page == "🔔 Notifications":
                 st.error("Failed to send.")
 
     with col_b:
-        meals_today = db.get_meals_for_date(date.today())
+        meals_today = db.get_meals_for_date(date.today(), user_id=user_id)
         if st.button("🍽️ Missing Meal Alert", use_container_width=True):
             if notifier.send_missing_meal_alert(len(meals_today)):
                 st.success("Meal alert sent!")
@@ -887,7 +992,7 @@ elif page == "⚙️ Settings":
                     "daily_calories":   str(new_calories),
                     "eating_window_start": new_start,
                     "eating_window_end":   new_end,
-                })
+                }, user_id=user_id)
                 if ok:
                     st.success("✅ Settings saved! Refresh the page to apply.")
                 elif not db.connected:
@@ -1032,7 +1137,7 @@ elif page == "✨ Body Vision":
                 format="%d kg"
             )
 
-            latest = db.get_latest_weight()
+            latest = db.get_latest_weight(user_id=user_id)
             if latest:
                 goal_weight = round(float(latest["weight_kg"]) - kg_to_lose, 1)
                 st.info(f"Current: **{latest['weight_kg']} kg** → Goal: **{goal_weight} kg**")

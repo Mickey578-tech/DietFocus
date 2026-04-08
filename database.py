@@ -4,6 +4,9 @@ Supabase integration for weight logs, meal logs, and fasting logs.
 Falls back to demo data when not configured.
 """
 
+import base64
+import hashlib
+import hmac
 import os
 import random
 from datetime import date, timedelta
@@ -29,31 +32,86 @@ class DatabaseManager:
         try:
             from supabase import create_client
             self.client = create_client(url, key)
-            # Ping to verify connection
             self.client.table("weight_logs").select("id").limit(1).execute()
             self.connected = True
             print("✅ Supabase connected.")
         except Exception as e:
             print(f"⚠️  Supabase connection failed: {e}\nRunning in demo mode.")
 
+    # ─── Auth ──────────────────────────────────────────────────────────────────
+
+    def _hash_password(self, password: str) -> str:
+        salt = os.urandom(32)
+        key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+        return base64.b64encode(salt + key).decode("utf-8")
+
+    def _verify_password(self, password: str, stored_hash: str) -> bool:
+        try:
+            decoded = base64.b64decode(stored_hash.encode("utf-8"))
+            salt = decoded[:32]
+            stored_key = decoded[32:]
+            key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000)
+            return hmac.compare_digest(key, stored_key)
+        except Exception:
+            return False
+
+    def register_user(self, username: str, password: str, display_name: str = "") -> tuple:
+        """Register a new user. Returns (user_id, error_message)."""
+        if not self.connected:
+            return None, "Database not connected"
+        if len(username.strip()) < 3:
+            return None, "Username must be at least 3 characters"
+        if len(password) < 6:
+            return None, "Password must be at least 6 characters"
+        try:
+            existing = self.client.table("users").select("id").eq("username", username.lower().strip()).execute()
+            if existing.data:
+                return None, "Username already taken"
+            result = self.client.table("users").insert({
+                "username": username.lower().strip(),
+                "password_hash": self._hash_password(password),
+                "display_name": display_name.strip() or username.strip(),
+            }).execute()
+            if result.data:
+                return result.data[0]["id"], None
+            return None, "Registration failed"
+        except Exception as e:
+            return None, str(e)
+
+    def authenticate_user(self, username: str, password: str) -> tuple:
+        """Authenticate user. Returns (user_id, display_name, error_message)."""
+        if not self.connected:
+            return None, None, "Database not connected"
+        try:
+            result = self.client.table("users").select("id, display_name, password_hash").eq(
+                "username", username.lower().strip()
+            ).execute()
+            if not result.data:
+                return None, None, "Username not found"
+            user = result.data[0]
+            if not self._verify_password(password, user["password_hash"]):
+                return None, None, "Incorrect password"
+            return user["id"], user["display_name"] or username, None
+        except Exception as e:
+            return None, None, str(e)
+
     # ─── Weight Logs ───────────────────────────────────────────────────────────
 
-    def log_weight(self, weight_kg: float, log_date: date, notes: str = "") -> bool:
-        """Insert or update a weight entry for the given date."""
+    def log_weight(self, weight_kg: float, log_date: date, user_id: str, notes: str = "") -> bool:
         if not self.connected:
             return False
         try:
-            self.client.table("weight_logs").upsert(
-                {"date": str(log_date), "weight_kg": weight_kg, "notes": notes},
-                on_conflict="date"
-            ).execute()
+            existing = self.client.table("weight_logs").select("id").eq("date", str(log_date)).eq("user_id", user_id).execute()
+            if existing.data:
+                self.client.table("weight_logs").update({"weight_kg": weight_kg, "notes": notes}).eq("id", existing.data[0]["id"]).execute()
+            else:
+                self.client.table("weight_logs").insert({"date": str(log_date), "weight_kg": weight_kg, "notes": notes, "user_id": user_id}).execute()
             return True
         except Exception as e:
             print(f"Error saving weight: {e}")
             return False
 
-    def get_weight_history(self, days: int = 90) -> List[Dict]:
-        """Return all weight entries for the last N days."""
+    def get_weight_history(self, days: int = 90, user_id: str = "") -> List[Dict]:
         if not self.connected:
             return self._demo_weight_data(days)
         try:
@@ -61,6 +119,7 @@ class DatabaseManager:
             result = (
                 self.client.table("weight_logs")
                 .select("*")
+                .eq("user_id", user_id)
                 .gte("date", str(from_date))
                 .order("date")
                 .execute()
@@ -71,7 +130,6 @@ class DatabaseManager:
             return []
 
     def delete_weight(self, weight_id: str) -> bool:
-        """Delete a weight entry by id."""
         if not self.connected:
             return False
         try:
@@ -81,14 +139,14 @@ class DatabaseManager:
             print(f"Error deleting weight: {e}")
             return False
 
-    def get_latest_weight(self) -> Optional[Dict]:
-        """Return the most recent weight entry."""
+    def get_latest_weight(self, user_id: str = "") -> Optional[Dict]:
         if not self.connected:
             return {"weight_kg": 74.2, "date": str(date.today()), "notes": "Demo"}
         try:
             result = (
                 self.client.table("weight_logs")
                 .select("*")
+                .eq("user_id", user_id)
                 .order("date", desc=True)
                 .limit(1)
                 .execute()
@@ -98,14 +156,14 @@ class DatabaseManager:
             print(f"Error fetching latest weight: {e}")
             return None
 
-    def get_previous_weight(self) -> Optional[Dict]:
-        """Return the second most recent weight entry (for delta calculation)."""
+    def get_previous_weight(self, user_id: str = "") -> Optional[Dict]:
         if not self.connected:
             return {"weight_kg": 74.8, "date": str(date.today() - timedelta(days=7))}
         try:
             result = (
                 self.client.table("weight_logs")
                 .select("*")
+                .eq("user_id", user_id)
                 .order("date", desc=True)
                 .limit(2)
                 .execute()
@@ -118,7 +176,6 @@ class DatabaseManager:
     # ─── Meal Logs ─────────────────────────────────────────────────────────────
 
     def log_meal(self, meal_data: Dict) -> bool:
-        """Insert a meal entry."""
         if not self.connected:
             return False
         try:
@@ -129,7 +186,6 @@ class DatabaseManager:
             return False
 
     def update_meal(self, meal_id: str, updates: Dict) -> bool:
-        """Update an existing meal entry by id."""
         if not self.connected:
             return False
         try:
@@ -140,7 +196,6 @@ class DatabaseManager:
             return False
 
     def delete_meal(self, meal_id: str) -> bool:
-        """Delete a meal entry."""
         if not self.connected:
             return False
         try:
@@ -150,14 +205,14 @@ class DatabaseManager:
             print(f"Error deleting meal: {e}")
             return False
 
-    def get_meals_for_date(self, log_date: date) -> List[Dict]:
-        """Return all meals logged on a specific date."""
+    def get_meals_for_date(self, log_date: date, user_id: str = "") -> List[Dict]:
         if not self.connected:
             return self._demo_meals_today()
         try:
             result = (
                 self.client.table("meal_logs")
                 .select("*")
+                .eq("user_id", user_id)
                 .eq("date", str(log_date))
                 .order("meal_number")
                 .execute()
@@ -167,8 +222,7 @@ class DatabaseManager:
             print(f"Error fetching meals: {e}")
             return []
 
-    def get_meal_history(self, days: int = 30) -> List[Dict]:
-        """Return all meals for the last N days."""
+    def get_meal_history(self, days: int = 30, user_id: str = "") -> List[Dict]:
         if not self.connected:
             return []
         try:
@@ -176,6 +230,7 @@ class DatabaseManager:
             result = (
                 self.client.table("meal_logs")
                 .select("*")
+                .eq("user_id", user_id)
                 .gte("date", str(from_date))
                 .order("date", desc=True)
                 .execute()
@@ -185,12 +240,11 @@ class DatabaseManager:
             print(f"Error fetching meal history: {e}")
             return []
 
-    def get_daily_totals(self, days: int = 30) -> List[Dict]:
-        """Return per-day macro totals for the last N days."""
+    def get_daily_totals(self, days: int = 30, user_id: str = "") -> List[Dict]:
         if not self.connected:
             return self._demo_daily_totals(days)
         try:
-            meals = self.get_meal_history(days)
+            meals = self.get_meal_history(days, user_id=user_id)
             if not meals:
                 return []
 
@@ -216,45 +270,37 @@ class DatabaseManager:
 
     # ─── Fasting Logs ──────────────────────────────────────────────────────────
 
-    def log_fasting(self, log_date: date, completed: bool,
+    def log_fasting(self, log_date: date, completed: bool, user_id: str,
                     first_meal_time: Optional[str] = None, notes: str = "") -> bool:
         if not self.connected:
             return False
         try:
-            self.client.table("fasting_logs").upsert(
-                {
-                    "date": str(log_date),
-                    "completed_fast": completed,
-                    "first_meal_time": first_meal_time,
-                    "notes": notes,
-                },
-                on_conflict="date"
-            ).execute()
+            existing = self.client.table("fasting_logs").select("id").eq("date", str(log_date)).eq("user_id", user_id).execute()
+            data = {"date": str(log_date), "completed_fast": completed,
+                    "first_meal_time": first_meal_time, "notes": notes, "user_id": user_id}
+            if existing.data:
+                self.client.table("fasting_logs").update(data).eq("id", existing.data[0]["id"]).execute()
+            else:
+                self.client.table("fasting_logs").insert(data).execute()
             return True
         except Exception as e:
             print(f"Error saving fasting log: {e}")
             return False
 
-    def get_fasting_streak(self) -> int:
-        """Count consecutive days (ending today or yesterday) where at least one meal was logged."""
+    def get_fasting_streak(self, user_id: str = "") -> int:
         if not self.connected:
             return 5
         try:
-            # Use get_meal_history which is known to work reliably
-            meals = self.get_meal_history(days=60)
-            logged_dates = set()
-            for m in meals:
-                logged_dates.add(m["date"][:10])
-
+            meals = self.get_meal_history(days=60, user_id=user_id)
+            logged_dates = {m["date"][:10] for m in meals}
             if not logged_dates:
                 return 0
-
             check = str(date.today())
             if check not in logged_dates:
                 check = str(date.today() - timedelta(days=1))
-
             streak = 0
-            check_d = date.fromisoformat(check)
+            from datetime import date as dt_date
+            check_d = dt_date.fromisoformat(check)
             while str(check_d) in logged_dates:
                 streak += 1
                 check_d -= timedelta(days=1)
@@ -265,34 +311,32 @@ class DatabaseManager:
 
     # ─── User Settings ─────────────────────────────────────────────────────────
 
-    def get_settings(self) -> Dict:
-        """Load all user settings from Supabase, returns empty dict if not connected."""
+    def get_settings(self, user_id: str = "") -> Dict:
         if not self.connected:
             return {}
         try:
-            result = self.client.table("user_settings").select("*").execute()
+            result = self.client.table("user_settings").select("*").eq("user_id", user_id).execute()
             return {row["key"]: row["value"] for row in result.data}
         except Exception as e:
             print(f"Error loading settings: {e}")
             return {}
 
-    def save_setting(self, key: str, value: str) -> bool:
-        """Save a single setting key/value to Supabase."""
+    def save_setting(self, key: str, value: str, user_id: str = "") -> bool:
         if not self.connected:
             return False
         try:
-            self.client.table("user_settings").upsert(
-                {"key": key, "value": str(value), "updated_at": "now()"},
-                on_conflict="key"
-            ).execute()
+            existing = self.client.table("user_settings").select("id").eq("key", key).eq("user_id", user_id).execute()
+            if existing.data:
+                self.client.table("user_settings").update({"value": str(value)}).eq("id", existing.data[0]["id"]).execute()
+            else:
+                self.client.table("user_settings").insert({"key": key, "value": str(value), "user_id": user_id}).execute()
             return True
         except Exception as e:
             print(f"Error saving setting {key}: {e}")
             return False
 
-    def save_settings(self, settings: Dict) -> bool:
-        """Save multiple settings at once."""
-        return all(self.save_setting(k, v) for k, v in settings.items())
+    def save_settings(self, settings: Dict, user_id: str = "") -> bool:
+        return all(self.save_setting(k, v, user_id=user_id) for k, v in settings.items())
 
     # ─── Demo / Fallback Data ──────────────────────────────────────────────────
 
@@ -302,7 +346,7 @@ class DatabaseManager:
         weight = 75.5
         for i in range(days):
             d = date.today() - timedelta(days=days - i)
-            if i % 3 == 0:  # only log some days
+            if i % 3 == 0:
                 weight = round(weight + random.uniform(-0.4, 0.2), 1)
                 data.append({"date": str(d), "weight_kg": weight, "notes": "Demo"})
         return data
