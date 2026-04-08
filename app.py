@@ -629,7 +629,7 @@ elif page == "📊 History":
 
     days_options = {7: "Last 7 days", 14: "Last 14 days", 30: "Last 30 days", 90: "Last 90 days"}
     selected_days = st.selectbox("Time range", list(days_options.keys()),
-                                 format_func=lambda x: days_options[x], index=2)
+                                 format_func=lambda x: days_options[x], index=0)
 
     tab1, tab2, tab3 = st.tabs(["📈 Macros Over Time", "🥗 Meal Log", "⚖️ Weight Table"])
 
@@ -682,12 +682,48 @@ elif page == "📊 History":
     with tab2:
         meals = db.get_meal_history(days=selected_days)
         if meals:
+            # Group by date, newest first
+            from collections import defaultdict
+            by_date = defaultdict(list)
+            for m in meals:
+                by_date[m["date"]].append(m)
+            sorted_dates = sorted(by_date.keys(), reverse=True)
+
+            for day in sorted_dates:
+                day_meals = sorted(by_date[day], key=lambda x: x.get("meal_number", 0))
+                day_protein  = sum(m.get("protein_g",  0) or 0 for m in day_meals)
+                day_carbs    = sum(m.get("carbs_g",    0) or 0 for m in day_meals)
+                day_calories = sum(m.get("calories",   0) or 0 for m in day_meals)
+
+                try:
+                    label_date = datetime.strptime(day, "%Y-%m-%d").strftime("%A, %d %B")
+                except Exception:
+                    label_date = day
+
+                with st.expander(
+                    f"**{label_date}** — {len(day_meals)} meal{'s' if len(day_meals)>1 else ''} · "
+                    f"{day_protein:.0f}g protein · {day_carbs:.0f}g carbs · {day_calories:.0f} kcal",
+                    expanded=(day == sorted_dates[0])
+                ):
+                    for m in day_meals:
+                        desc = m.get("description") or "—"
+                        p  = m.get("protein_g",  0) or 0
+                        c  = m.get("carbs_g",    0) or 0
+                        f  = m.get("fat_g",      0) or 0
+                        kc = m.get("calories",   0) or 0
+                        st.markdown(
+                            f"🍽️ **Meal {m.get('meal_number','')}** &nbsp; {desc}  \n"
+                            f"<span style='color:#2E7D32'>Protein {p:.0f}g</span> &nbsp;|&nbsp; "
+                            f"<span style='color:#FF8F00'>Carbs {c:.0f}g</span> &nbsp;|&nbsp; "
+                            f"Fat {f:.0f}g &nbsp;|&nbsp; {kc:.0f} kcal",
+                            unsafe_allow_html=True
+                        )
+
+            # CSV download (flat table)
             df_meals = pd.DataFrame(meals)[
                 ["date", "meal_number", "description", "protein_g", "carbs_g", "fat_g", "calories"]
             ].sort_values("date", ascending=False)
             df_meals.columns = ["Date", "Meal #", "Description", "Protein (g)", "Carbs (g)", "Fat (g)", "Calories"]
-            st.dataframe(df_meals, use_container_width=True, hide_index=True)
-
             csv = df_meals.to_csv(index=False).encode("utf-8")
             st.download_button(
                 "📥 Download CSV",
