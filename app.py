@@ -205,9 +205,70 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ─── PWA Meta Tags ─────────────────────────────────────────────────────────────
+
+st.markdown("""
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DietFocus">
+<meta name="theme-color" content="#2E7D32">
+<script>
+(function() {
+    const manifest = {
+        name: "DietFocus",
+        short_name: "DietFocus",
+        description: "Low-carb · High-protein · IF 16:8",
+        start_url: window.location.href,
+        display: "standalone",
+        background_color: "#f4f7f4",
+        theme_color: "#2E7D32"
+    };
+    const blob = new Blob([JSON.stringify(manifest)], {type:"application/manifest+json"});
+    const url = URL.createObjectURL(blob);
+    let link = document.querySelector('link[rel="manifest"]');
+    if (!link) { link = document.createElement("link"); document.head.appendChild(link); }
+    link.rel = "manifest"; link.href = url;
+})();
+</script>
+""", unsafe_allow_html=True)
+
+# ─── Cookie helpers ─────────────────────────────────────────────────────────────
+
+def _get_remember_cookie() -> str:
+    try:
+        header = st.context.headers.get("cookie", "")
+        for part in header.split(";"):
+            part = part.strip()
+            if part.startswith("df_remember="):
+                return part[len("df_remember="):]
+    except Exception:
+        pass
+    return ""
+
+def _set_remember_cookie(token: str):
+    st.markdown(
+        f'<script>document.cookie="df_remember={token}; max-age=2592000; path=/; SameSite=Lax";</script>',
+        unsafe_allow_html=True,
+    )
+
+def _clear_remember_cookie():
+    st.markdown(
+        '<script>document.cookie="df_remember=; max-age=0; path=/";</script>',
+        unsafe_allow_html=True,
+    )
+
 # ─── Login Gate ────────────────────────────────────────────────────────────────
 
 if "user_id" not in st.session_state:
+    # Auto-login via remember-me cookie
+    _cookie_token = _get_remember_cookie()
+    if _cookie_token:
+        _uid, _display = db.validate_remember_token(_cookie_token)
+        if _uid:
+            st.session_state["user_id"]      = _uid
+            st.session_state["display_name"] = _display
+            st.rerun()
+
     st.markdown(
         """
         <style>
@@ -232,9 +293,10 @@ if "user_id" not in st.session_state:
 
         with tab_login:
             with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Login", use_container_width=True)
+                username    = st.text_input("Username")
+                password    = st.text_input("Password", type="password")
+                remember_me = st.checkbox("Remember me on this device", value=True)
+                submitted   = st.form_submit_button("Login", use_container_width=True)
             if submitted:
                 uid, display, err = db.authenticate_user(username, password)
                 if err:
@@ -242,15 +304,27 @@ if "user_id" not in st.session_state:
                 else:
                     st.session_state["user_id"]      = uid
                     st.session_state["display_name"] = display
+                    if remember_me:
+                        token = db.create_remember_token(uid)
+                        if token:
+                            _set_remember_cookie(token)
                     st.rerun()
+
+            with st.expander("Forgot password?"):
+                st.markdown(
+                    "Enter your username below and contact the app admin to reset it."
+                )
+                fp_user = st.text_input("Your username", key="fp_user")
+                if fp_user:
+                    st.info(f"Please contact the app admin and mention your username: **{fp_user}**")
 
         with tab_register:
             with st.form("register_form"):
-                new_username     = st.text_input("Username")
-                new_display      = st.text_input("Display name (shown in app)")
-                new_password     = st.text_input("Password", type="password")
-                new_password2    = st.text_input("Confirm password", type="password")
-                reg_submitted    = st.form_submit_button("Create Account", use_container_width=True)
+                new_username  = st.text_input("Username")
+                new_display   = st.text_input("Display name (shown in app)")
+                new_password  = st.text_input("Password", type="password")
+                new_password2 = st.text_input("Confirm password", type="password")
+                reg_submitted = st.form_submit_button("Create Account", use_container_width=True)
             if reg_submitted:
                 if new_password != new_password2:
                     st.error("Passwords do not match")
@@ -261,6 +335,9 @@ if "user_id" not in st.session_state:
                     else:
                         st.session_state["user_id"]      = uid
                         st.session_state["display_name"] = new_display or new_username
+                        token = db.create_remember_token(uid)
+                        if token:
+                            _set_remember_cookie(token)
                         st.success("Account created! Welcome!")
                         st.rerun()
     st.stop()
@@ -330,6 +407,8 @@ with hcol1:
 with hcol2:
     st.markdown(f"<div style='padding-top:0.4rem;font-size:0.8rem;color:#555'>👤 {display_name}</div>", unsafe_allow_html=True)
     if st.button("Logout", use_container_width=True):
+        db.delete_remember_token_for_user(user_id)
+        _clear_remember_cookie()
         st.session_state.clear()
         st.rerun()
 
@@ -998,6 +1077,31 @@ elif page == "⚙️ Settings":
                     st.warning("Not connected to database — settings not saved.")
                 else:
                     st.error("Could not save settings.")
+
+        st.divider()
+        st.subheader("🔑 Change Password")
+        with st.form("change_password_form"):
+            cur_pw  = st.text_input("Current password", type="password")
+            new_pw  = st.text_input("New password", type="password")
+            new_pw2 = st.text_input("Confirm new password", type="password")
+            cp_btn  = st.form_submit_button("Change Password", use_container_width=True)
+        if cp_btn:
+            if new_pw != new_pw2:
+                st.error("New passwords do not match")
+            else:
+                _, _, auth_err = db.authenticate_user(
+                    st.session_state.get("display_name", ""), cur_pw
+                )
+                # authenticate by user_id directly via current password check
+                user_row = db.client.table("users").select("password_hash, username").eq("id", user_id).execute()
+                if user_row.data and db._verify_password(cur_pw, user_row.data[0]["password_hash"]):
+                    ok, err = db.change_password(user_id, new_pw)
+                    if ok:
+                        st.success("✅ Password changed successfully!")
+                    else:
+                        st.error(f"Error: {err}")
+                else:
+                    st.error("Current password is incorrect")
 
         st.divider()
         st.subheader("Connection Status")

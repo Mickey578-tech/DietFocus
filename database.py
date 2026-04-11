@@ -9,7 +9,8 @@ import hashlib
 import hmac
 import os
 import random
-from datetime import date, timedelta
+import secrets
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
@@ -94,6 +95,78 @@ class DatabaseManager:
             return user["id"], user["display_name"] or username, None
         except Exception as e:
             return None, None, str(e)
+
+    def change_password(self, user_id: str, new_password: str) -> tuple:
+        """Change password. Returns (success, error_message)."""
+        if not self.connected:
+            return False, "Database not connected"
+        if len(new_password) < 6:
+            return False, "Password must be at least 6 characters"
+        try:
+            self.client.table("users").update({
+                "password_hash": self._hash_password(new_password)
+            }).eq("id", user_id).execute()
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    # ─── Remember Me Tokens ────────────────────────────────────────────────────
+
+    def create_remember_token(self, user_id: str, days: int = 30) -> str:
+        """Create a persistent remember-me token. Returns token string."""
+        if not self.connected:
+            return ""
+        try:
+            token = secrets.token_urlsafe(32)
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            # Remove any existing tokens for this user
+            self.client.table("remember_tokens").delete().eq("user_id", user_id).execute()
+            self.client.table("remember_tokens").insert({
+                "user_id": user_id,
+                "token": token,
+                "expires_at": expires_at,
+            }).execute()
+            return token
+        except Exception as e:
+            print(f"Error creating remember token: {e}")
+            return ""
+
+    def validate_remember_token(self, token: str) -> tuple:
+        """Validate a remember-me token. Returns (user_id, display_name) or (None, None)."""
+        if not self.connected or not token:
+            return None, None
+        try:
+            result = (
+                self.client.table("remember_tokens")
+                .select("user_id, expires_at")
+                .eq("token", token)
+                .execute()
+            )
+            if not result.data:
+                return None, None
+            row = result.data[0]
+            # Check expiry
+            expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+            if expires < datetime.now(timezone.utc):
+                self.client.table("remember_tokens").delete().eq("token", token).execute()
+                return None, None
+            # Fetch user info
+            user = self.client.table("users").select("id, display_name").eq("id", row["user_id"]).execute()
+            if user.data:
+                return user.data[0]["id"], user.data[0].get("display_name", "")
+            return None, None
+        except Exception as e:
+            print(f"Error validating remember token: {e}")
+            return None, None
+
+    def delete_remember_token_for_user(self, user_id: str):
+        """Remove remember-me token (on logout)."""
+        if not self.connected:
+            return
+        try:
+            self.client.table("remember_tokens").delete().eq("user_id", user_id).execute()
+        except Exception:
+            pass
 
     # ─── Weight Logs ───────────────────────────────────────────────────────────
 
