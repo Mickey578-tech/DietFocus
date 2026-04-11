@@ -1217,84 +1217,146 @@ Built with Streamlit · Supabase · Claude Vision · Twilio
 elif page == "✨ Body Vision":
     st.markdown('<div class="page-title">✨ Body Vision</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="page-subtitle">See how you\'ll look after reaching your goal weight — powered by AI.</div>',
+        '<div class="page-subtitle">See how you\'ll look after reaching your goal weight.</div>',
         unsafe_allow_html=True,
     )
 
-    # Re-check token on every page load
-    body_viz.enabled = bool(body_viz._get_token())
+    bv_tab1, bv_tab2 = st.tabs(["🎨 Edit with BeFunky", "🤖 AI Generation"])
 
-    if not body_viz.enabled:
+    # ── Tab 1: BeFunky ──────────────────────────────────────────────────────────
+    with bv_tab1:
         st.markdown(
-            """<div class="alert-warning">
-            <strong>Replicate API not configured.</strong><br>
-            To enable this feature, add your <code>REPLICATE_API_TOKEN</code> to Streamlit secrets.
+            """<div class="alert-success" style="margin-bottom:1rem">
+            <strong>BeFunky</strong> gives the most realistic results — it lets you manually
+            slim and reshape your photo using real editing tools.
             </div>""",
             unsafe_allow_html=True,
         )
+
+        st.subheader("How to use")
         st.markdown("""
+1. **Upload your photo** below so you have it ready
+2. **Open BeFunky** (button below) — it opens in a new tab
+3. In BeFunky: click **Edit** → upload your photo → go to **Touch Up** → use **Liquify** to slim your waist/body
+4. When done: click **Save** → **Download** to your device
+5. Come back here and **upload the result** in the "After" section below
+""")
+
+        st.link_button(
+            "🎨 Open BeFunky Photo Editor",
+            "https://www.befunky.com/create/photo-editor/",
+            use_container_width=True,
+        )
+
+        st.divider()
+
+        bf_col1, bf_col2 = st.columns(2)
+
+        with bf_col1:
+            st.subheader("Before")
+            before_file = st.file_uploader(
+                "Upload your original photo",
+                type=["jpg", "jpeg", "png"],
+                key="bf_before",
+                label_visibility="collapsed",
+            )
+            if before_file:
+                st.image(before_file, caption="Before", use_column_width=True)
+                st.session_state["bf_before_bytes"] = before_file.read()
+
+        with bf_col2:
+            st.subheader("After")
+            after_file = st.file_uploader(
+                "Upload your edited photo from BeFunky",
+                type=["jpg", "jpeg", "png"],
+                key="bf_after",
+                label_visibility="collapsed",
+            )
+            if after_file:
+                st.image(after_file, caption="After ✨", use_column_width=True)
+
+        if before_file and after_file:
+            latest = db.get_latest_weight(user_id=user_id)
+            kg_goal = st.number_input("How many kg does this represent?", min_value=1, max_value=50, value=10)
+            if latest:
+                st.success(f"Amazing! {latest['weight_kg']} kg → {round(float(latest['weight_kg']) - kg_goal, 1)} kg — you've got this! 💪")
+
+    # ── Tab 2: AI Generation ────────────────────────────────────────────────────
+    with bv_tab2:
+        # Re-check token on every page load
+        body_viz.enabled = bool(body_viz._get_token())
+
+        if not body_viz.enabled:
+            st.markdown(
+                """<div class="alert-warning">
+                <strong>Replicate API not configured.</strong><br>
+                To enable this feature, add your <code>REPLICATE_API_TOKEN</code> to Streamlit secrets.
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            st.markdown("""
 **How to set up:**
 1. Go to **replicate.com** → sign up (free)
 2. Click your profile → **API Tokens** → **Create token**
 3. Go to **share.streamlit.io** → your app → **Settings** → **Secrets**
 4. Add: `REPLICATE_API_TOKEN = "r8_your_token_here"`
 5. Save → refresh the app
-        """)
-    else:
-        col_upload, col_result = st.columns([1, 1])
+            """)
+        else:
+            col_upload, col_result = st.columns([1, 1])
 
-        with col_upload:
-            st.subheader("Upload your photo")
-            st.caption("Best results: full-body photo, good lighting, standing straight.")
+            with col_upload:
+                st.subheader("Upload your photo")
+                st.caption("Best results: full-body photo, good lighting, standing straight.")
 
-            uploaded = st.file_uploader(
-                "Choose a photo", type=["jpg", "jpeg", "png"],
-                label_visibility="collapsed"
-            )
-
-            if uploaded:
-                from PIL import Image as PILImage
-                img = PILImage.open(uploaded)
-                st.image(img, caption="Your photo today", use_column_width=True)
-
-            st.divider()
-            kg_to_lose = st.slider(
-                "How many kg do you want to lose?",
-                min_value=1, max_value=20, value=5, step=1,
-                format="%d kg"
-            )
-
-            latest = db.get_latest_weight(user_id=user_id)
-            if latest:
-                goal_weight = round(float(latest["weight_kg"]) - kg_to_lose, 1)
-                st.info(f"Current: **{latest['weight_kg']} kg** → Goal: **{goal_weight} kg**")
-
-            generate_btn = st.button(
-                "✨ Generate Visualization",
-                use_container_width=True,
-                disabled=not uploaded,
-            )
-
-        with col_result:
-            st.subheader("Your future self")
-            if uploaded and generate_btn:
-                with st.spinner("AI is generating your visualization... this takes ~60 seconds"):
-                    uploaded.seek(0)
-                    image_bytes = uploaded.read()
-                    result_url, error_msg = body_viz.visualize(image_bytes, kg_to_lose)
-
-                if result_url:
-                    st.image(result_url, caption=f"After losing {kg_to_lose} kg", use_column_width=True)
-                    st.success(f"You've got this! Only {kg_to_lose} kg to go! 💪")
-                    st.caption("This is an AI visualization. Results are an approximation.")
-                else:
-                    st.error(f"Could not generate visualization: {error_msg}")
-            elif not uploaded:
-                st.markdown(
-                    """<div style="background:#f5f5f5; border-radius:12px; padding:3rem;
-                    text-align:center; color:#aaa; margin-top:1rem;">
-                    <div style="font-size:3rem">🪞</div>
-                    <div style="margin-top:0.5rem">Your visualization will appear here</div>
-                    </div>""",
-                    unsafe_allow_html=True,
+                uploaded = st.file_uploader(
+                    "Choose a photo", type=["jpg", "jpeg", "png"],
+                    label_visibility="collapsed"
                 )
+
+                if uploaded:
+                    from PIL import Image as PILImage
+                    img = PILImage.open(uploaded)
+                    st.image(img, caption="Your photo today", use_column_width=True)
+
+                st.divider()
+                kg_to_lose = st.slider(
+                    "How many kg do you want to lose?",
+                    min_value=1, max_value=20, value=5, step=1,
+                    format="%d kg"
+                )
+
+                latest = db.get_latest_weight(user_id=user_id)
+                if latest:
+                    goal_weight = round(float(latest["weight_kg"]) - kg_to_lose, 1)
+                    st.info(f"Current: **{latest['weight_kg']} kg** → Goal: **{goal_weight} kg**")
+
+                generate_btn = st.button(
+                    "✨ Generate Visualization",
+                    use_container_width=True,
+                    disabled=not uploaded,
+                )
+
+            with col_result:
+                st.subheader("Your future self")
+                if uploaded and generate_btn:
+                    with st.spinner("AI is generating your visualization... this takes ~60 seconds"):
+                        uploaded.seek(0)
+                        image_bytes = uploaded.read()
+                        result_url, error_msg = body_viz.visualize(image_bytes, kg_to_lose)
+
+                    if result_url:
+                        st.image(result_url, caption=f"After losing {kg_to_lose} kg", use_column_width=True)
+                        st.success(f"You've got this! Only {kg_to_lose} kg to go! 💪")
+                        st.caption("This is an AI visualization. Results are an approximation.")
+                    else:
+                        st.error(f"Could not generate visualization: {error_msg}")
+                elif not uploaded:
+                    st.markdown(
+                        """<div style="background:#f5f5f5; border-radius:12px; padding:3rem;
+                        text-align:center; color:#aaa; margin-top:1rem;">
+                        <div style="font-size:3rem">🪞</div>
+                        <div style="margin-top:0.5rem">Your visualization will appear here</div>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
