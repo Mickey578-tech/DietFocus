@@ -384,23 +384,29 @@ now = now_il().time()
 if EATING_START <= now <= EATING_END:
     remaining = datetime.combine(date.today(), EATING_END, TZ) - now_il()
     h, m = divmod(remaining.seconds // 60, 60)
-    fasting_badge = f"🟢 {h}h {m}m left"
+    fasting_badge      = f"🟢 {h}h {m}m left"
+    header_bg          = "linear-gradient(135deg, #1B5E20, #2E7D32)"
+    header_badge_bg    = "rgba(255,255,255,0.15)"
 elif now < EATING_START:
     until = datetime.combine(date.today(), EATING_START, TZ) - now_il()
     h, m = divmod(until.seconds // 60, 60)
-    fasting_badge = f"⏳ Window in {h}h {m}m"
+    fasting_badge      = f"🔴 Window in {h}h {m}m"
+    header_bg          = "linear-gradient(135deg, #B71C1C, #C62828)"
+    header_badge_bg    = "rgba(255,255,255,0.15)"
 else:
-    fasting_badge = "🔒 Window closed"
+    fasting_badge      = "🔴 Window closed"
+    header_bg          = "linear-gradient(135deg, #B71C1C, #C62828)"
+    header_badge_bg    = "rgba(255,255,255,0.15)"
 
 hcol1, hcol2 = st.columns([5, 1])
 with hcol1:
     st.markdown(
-        f"""<div class="app-header">
+        f"""<div class="app-header" style="background:{header_bg}">
             <div>
                 <div class="app-header-title">🥗 DietFocus</div>
                 <div class="app-header-sub">Low-carb · High-protein · IF 16:8</div>
             </div>
-            <div class="fasting-badge">{fasting_badge}</div>
+            <div class="fasting-badge" style="background:{header_badge_bg}">{fasting_badge}</div>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -496,18 +502,36 @@ if page == "🏠 Dashboard":
             unsafe_allow_html=True,
         )
 
-    weight_display = f"{curr_weight} kg" if curr_weight else "–"
-    delta_display  = (f"{'▲' if delta > 0 else '▼'} {abs(delta)} kg vs last" if delta else "")
-    delta_color    = "color:#EF5350" if (delta and delta > 0) else "color:#4CAF50"
+    show_weight = st.session_state.get("show_weight", False)
 
-    c1.markdown(
-        f"""<div class="kpi-card" style="border-top-color:#2196F3">
-            <div class="kpi-value" style="color:#1565C0">{weight_display}</div>
-            <div class="kpi-delta" style="{delta_color}">{delta_display}</div>
-            <div class="kpi-label">Current Weight</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    delta_display = (f"{'▲' if delta > 0 else '▼'} {abs(delta)} kg vs last" if delta else "")
+    delta_color   = "color:#EF5350" if (delta and delta > 0) else "color:#4CAF50"
+
+    if show_weight:
+        weight_display = f"{curr_weight} kg" if curr_weight else "–"
+        c1.markdown(
+            f"""<div class="kpi-card" style="border-top-color:#2196F3">
+                <div class="kpi-value" style="color:#1565C0">{weight_display}</div>
+                <div class="kpi-delta" style="{delta_color}">{delta_display}</div>
+                <div class="kpi-label">Current Weight</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        if c1.button("🙈 Hide", key="hide_weight", use_container_width=True):
+            st.session_state["show_weight"] = False
+            st.rerun()
+    else:
+        c1.markdown(
+            """<div class="kpi-card" style="border-top-color:#2196F3;cursor:pointer">
+                <div class="kpi-value" style="color:#90A4AE">••••</div>
+                <div class="kpi-delta">&nbsp;</div>
+                <div class="kpi-label">Current Weight</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        if c1.button("👁 Show", key="show_weight_btn", use_container_width=True):
+            st.session_state["show_weight"] = True
+            st.rerun()
 
     prot_pct = int(today_protein / TARGETS["daily_protein_g"] * 100) if TARGETS["daily_protein_g"] else 0
     kpi(c2, f"{today_protein:.0f}g", "Protein today",
