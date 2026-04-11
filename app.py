@@ -232,42 +232,25 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
-# ─── Cookie helpers ─────────────────────────────────────────────────────────────
-
-def _get_remember_cookie() -> str:
-    try:
-        header = st.context.headers.get("cookie", "")
-        for part in header.split(";"):
-            part = part.strip()
-            if part.startswith("df_remember="):
-                return part[len("df_remember="):]
-    except Exception:
-        pass
-    return ""
-
-def _set_remember_cookie(token: str):
-    st.markdown(
-        f'<script>document.cookie="df_remember={token}; max-age=2592000; path=/; SameSite=Lax";</script>',
-        unsafe_allow_html=True,
-    )
-
-def _clear_remember_cookie():
-    st.markdown(
-        '<script>document.cookie="df_remember=; max-age=0; path=/";</script>',
-        unsafe_allow_html=True,
-    )
-
 # ─── Login Gate ────────────────────────────────────────────────────────────────
 
+def _set_remember_cookie(token: str):
+    st.query_params["t"] = token
+
+def _clear_remember_cookie():
+    st.query_params.clear()
+
 if "user_id" not in st.session_state:
-    # Auto-login via remember-me cookie
-    _cookie_token = _get_remember_cookie()
-    if _cookie_token:
-        _uid, _display = db.validate_remember_token(_cookie_token)
+    # Auto-login via token in URL query param (?t=TOKEN)
+    _url_token = st.query_params.get("t", "")
+    if _url_token:
+        _uid, _display = db.validate_remember_token(_url_token)
         if _uid:
             st.session_state["user_id"]      = _uid
             st.session_state["display_name"] = _display
             st.rerun()
+        else:
+            st.query_params.clear()   # token expired or invalid, clean URL
 
     st.markdown(
         """
@@ -414,8 +397,8 @@ with hcol2:
     st.markdown(f"<div style='padding-top:0.4rem;font-size:0.8rem;color:#555'>👤 {display_name}</div>", unsafe_allow_html=True)
     if st.button("Logout", use_container_width=True):
         db.delete_remember_token_for_user(user_id)
-        _clear_remember_cookie()
         st.session_state.clear()
+        st.query_params.clear()
         st.rerun()
 
 # ─── Navigation ────────────────────────────────────────────────────────────────
